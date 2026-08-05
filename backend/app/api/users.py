@@ -7,7 +7,7 @@ from core.dependencies import require_owner, require_content_manager, get_curren
 
 from models.user import User
 
-from schemas.user import UserCreate, UserRead, LoginRequest, TokenResponse, UserUpdate, DeleteUserRequest
+from schemas.user import UserCreate, UserRead, LoginRequest, TokenResponse, UserUpdate, DeleteUserRequest, UserAssignable
 from schemas.timesheet import TimesheetRead
 
 from services.timesheet_service import get_user_timesheets
@@ -19,6 +19,7 @@ from services.user_service import (
     update_user,
     set_user_active,
     delete_user,
+    get_assignable_users,
 )
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -45,6 +46,15 @@ async def list_users(
     _: User = Depends(require_content_manager)
 ):
     return await get_all_users(db)
+
+# Assignable users (active Employees + Managers) — any logged-in user, for
+# assignment dropdowns and displaying assigned names on the calendar.
+@router.get("/assignable", response_model=list[UserAssignable])
+async def assignable_users(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    return await get_assignable_users(db)
 
 @router.get("/{user_id}", response_model=UserRead)
 async def get_one_user(

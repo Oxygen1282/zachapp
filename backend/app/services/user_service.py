@@ -135,3 +135,17 @@ async def delete_user(db: AsyncSession, user_id: int, owner: User, data: DeleteU
     return {
         "message": "User Deleted"
     }
+
+# Active Employees + Managers, for assignment dropdowns and name display.
+# Any logged-in user can call this (employees need it to see who's assigned),
+# so it returns only id + name + permissions — no pay, email, or hash.
+
+async def get_assignable_users(db: AsyncSession):
+    result = await db.execute(
+        select(User).where(
+            User.is_active == True,
+            User.permissions.in_(["Employee", "Manager"]),
+        )
+    )
+
+    return result.scalars().all()

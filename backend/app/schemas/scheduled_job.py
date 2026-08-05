@@ -10,7 +10,7 @@ class ScheduledJobBase(BaseModel):
     job_end_date: datetime
 
     # Assigned employee names. Defaults to empty so it's optional on create.
-    employees: list[str] = Field(default_factory=list)
+    employees: list[int] = Field(default_factory=list)
 
 class ScheduledJobCreate(ScheduledJobBase):
     pass 

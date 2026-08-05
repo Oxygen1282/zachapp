@@ -38,6 +38,8 @@ function MyCalendar() {
     // The in-progress employee name being typed (before it's added to the list).
     const [employeeInput, setEmployeeInput] = useState("");
 
+    const [assignableUsers, setAssignableUsers] = useState([]);
+
     // useState to edit the selected Event details
     const [editData, setEditData] = useState({
         title: "",
@@ -81,6 +83,13 @@ function MyCalendar() {
         } catch (error) {
             console.error("Failed to load scheduled jobs:", error);
         }
+
+        try {
+            const userRes = await apiFetch("/users/assignable");
+            setAssignableUsers(await userRes.json());
+        } catch (error) {
+            console.error("Failed to load assignable users:", error);
+        }
     }
 
     async function createScheduledJob(job) {
@@ -104,6 +113,29 @@ function MyCalendar() {
     async function deleteScheduledJob(id) {
         await apiFetch(`/scheduled_jobs/${id}`, {
             method: "DELETE",
+        });
+    }
+
+    // Map a user id to their name for display (employees are stored as ids).
+    function userName(id) {
+        const u = assignableUsers.find((x) => x.id === id);
+        return u ? u.name : "(unkown)";
+    }
+
+    // Events active today: today falls within the event's start–end range.
+    // Compares by calendar day (ignoring time), so a multi-day job shows on
+    // every day it spans.
+    function getTodaysEvents() {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);     // start of today
+
+        return events.filter((ev) => {
+            const start = new Date(ev.start);
+            start.setHours(0, 0, 0, 0);
+            const end = new Date(ev.end);
+            end.setHours(0, 0, 0, 0);
+            // today is on or after start, and on or before end
+            return today >= start && today <= end;
         });
     }
 
@@ -209,25 +241,22 @@ function MyCalendar() {
         setSelectedEvent(null);
     }
 
-    // Add the typed name to the list (if non-empty and not a duplicate).
-    function addEmployee() {
-        const name = employeeInput.trim();
-        if (name === "") return;
-        if (editData.employees.includes(name)) {
-            setEmployeeInput("");
-            return;
-        }
-        setEditData({ ...editData, employees: [...editData.employees, name] });
-        setEmployeeInput("");
+    // Add an employee by id (from the dropdown). Duplicate-guarded by the
+    // dropdown filter, but checked here too.
+    function addEmployee(id) {
+        if (editData.employees.includes(id)) return;
+        setEditData({ ...editData, employees: [...editData.employees, id] });
     }
 
-    // Remove an employee by index.
-    function removeEmployee(index) {
+    // Remove an employee by id.
+    function removeEmployee(id) {
         setEditData({
             ...editData,
-            employees: editData.employees.filter((_, i) => i !== index),
+            employees: editData.employees.filter((e) => e !== id),
         });
     }
+
+    const todaysEvents = getTodaysEvents();
 
     return (
         <div
@@ -237,33 +266,93 @@ function MyCalendar() {
             }}
         >
             
+            {/* Row: calendar on the left, today's detail panel on the right */}
             <div
                 style={{
-                    height: "80vh"
+                    display: "flex",
+                    gap: "16px",
+                    height: "80vh",
                 }}
             >
+    
+                {/* Calendar — takes the remaining space */}
+                <div style={{ flexGrow: 1 }}>
+                    <Calendar
+                        localizer={localizer}
+                        events={events}
 
-                <Calendar
-                    localizer={localizer}
-                    events={events}
+                        selectable={canEdit}
 
-                    selectable={canEdit}
+                        date={date}
+                        onNavigate={(newDate) => setDate(newDate)}
 
-                    date={date}
-                    onNavigate={(newDate) => setDate(newDate)}
+                        view={view}
+                        onView={(newView) => setView(newView)}
 
-                    view={view}
-                    onView={(newView) => setView(newView)}
+                        longPressThreshold={10}
+                        
+                        onSelectSlot={canEdit ? handleSlotSelect : undefined}
 
-                    longPressThreshold={10}
-                    
-                    onSelectSlot={canEdit ? handleSlotSelect : undefined}
+                        onSelectEvent={handleEventClick}
 
-                    onSelectEvent={handleEventClick}
+                        startAccessor="start"
+                        endAccessor="end"         
+                    />
+                </div>
 
-                    startAccessor="start"
-                    endAccessor="end"         
-                />
+                {/* Today's detail panel — fixed width on the right */}
+                <div 
+                    style={{
+                        width: "300px",
+                        flexShrink: 0,
+                        border: "1px solid #ccc",
+                        borderRadius: "8px",
+                        padding: "12px",
+                        overflowY: "auto",
+                    }}
+                >
+                    <h3 style={{ marginTop: 0 }}>Today's Schedule</h3>
+
+                    {todaysEvents.length === 0 ? (
+                        <div style={{ color: "#888" }}>Nothing scheduled today.</div>
+                    ) : (
+                        todaysEvents.map((ev) => (
+                            <div 
+                                key={ev.id}
+                                style={{
+                                    borderBottom: "1px solid #eee",
+                                    paddingBottom: "10px",
+                                    marginBottom: "10px"
+                                }}
+                            >
+                                <div style={{ fontWeight: "bold" }}>{ev.title}</div>
+                                {ev.comments && (
+                                    <div 
+                                        style={{
+                                            fontSize: "0.9em",
+                                            color: "#555",
+                                            marginTop: "4px",
+                                        }}
+                                    >
+                                        {ev.comments}
+                                    </div>
+                                )}
+
+                                <div 
+                                    style={{
+                                        fontSize: "0.85em",
+                                        marginTop: "6px",
+                                    }}
+                                >
+                                    <strong>Assigned:</strong>{" "}
+                                    {ev.employees && ev.employees.length > 0
+                                        ? ev.employees.map((id) => userName(id)).join(", ")
+                                        : "No one assigned"}
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
             </div>
 
             {showPopup && (
@@ -335,9 +424,9 @@ function MyCalendar() {
                                     </div>
                                 )}
 
-                                {editData.employees.map((name, index) => (
+                                {editData.employees.map((id) => (
                                     <div
-                                        key={index}
+                                        key={id}
                                         style={{
                                             display: "flex",
                                             justifyContent: "space-between",
@@ -345,26 +434,33 @@ function MyCalendar() {
                                             marginBottom: "4px"
                                         }}
                                     >
-                                        <span>{name}</span>
-                                        <button onClick={() => removeEmployee(index)}>Remove</button>
+                                        <span>{userName(id)}</span>
+                                        <button onClick={() => removeEmployee(id)}>Remove</button>
                                     </div>
                                 ))}
 
+                                {/* Add via dropdown of assignable users not already added */}
                                 <div 
                                     style={{
                                         display: "flex",
                                         gap: "6px",
-                                        marginTop: "6px"
+                                        marginTop: "6px",
                                     }}
                                 >
-                                    <input 
-                                        value={employeeInput}
-                                        onChange={(e) => setEmployeeInput(e.target.value)}
-                                        placeholder="Employee name"
-                                    />
-                                    <button onClick={addEmployee}>Add</button>
+                                    <select 
+                                        value=""
+                                        onChange={(e) => { if (e.target.value) addEmployee(Number(e.target.value)); }}
+                                    >
+                                        <option value="">-- Add employee --</option>
+                                        {assignableUsers
+                                            .filter((u) => !editData.employees.includes(u.id))
+                                            .map((u) => (
+                                                <option key={u.id} value={u.id}>
+                                                    {u.name} ({u.permissions})
+                                                </option>
+                                            ))}
+                                    </select>
                                 </div>
-                            
                             </div>
                         ) : (
                             // Read-only: just the assigned names, no controls
@@ -379,8 +475,8 @@ function MyCalendar() {
                                 {editData.employees.length === 0 ? (
                                     <div style={{ color: "#888" }}>No employees assigned.</div>
                                 ) : (
-                                    editData.employees.map((name, index) => (
-                                        <div key={index}>{name}</div>
+                                    editData.employees.map((id) => (
+                                        <div key={id}>{userName(id)}</div>
                                     ))
                                 )}
                             </div>

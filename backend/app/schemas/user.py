@@ -43,3 +43,13 @@ class TokenResponse(BaseModel):
 
 class DeleteUserRequest(BaseModel):
     password: str       # the OWNER's password, re-verified before deleting 
+
+# Minimal user info for assignment dropdowns / name display. No pay/email/hash.
+class UserAssignable(BaseModel):
+    id: int
+    name: str
+    permissions: str 
+
+    model_config = {
+        "from_attributes": True
+    }

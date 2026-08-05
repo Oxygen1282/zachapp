@@ -270,81 +270,51 @@ function MaterialsEditor({ entries, catalog, onChange, onCatalogChanged }) {
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 //
-//                                                  REUSABLE DICTIONARY EDITOR (EMPLOYEES_OUT)
+//                                    EMPLOYEE LABOR EDITOR: PICK HOURLY EMPLOYEE + ENTER HOURS
 //
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-function DictEditor({ title, entries, onChange }) {
+// entries is the employees_out LIST: [{user_id, name, hours, rate, cost}, ...]
+// hourlyEmployees is the list of active hourly employees (with pay_rate).
+// Cost is hours * frozen rate; rate freezes when the employee is added.
+function EmployeeLaborEditor({ entries, hourlyEmployees, onChange }) {
 
-    const NEW = "__new__";
+    // Add an employee: freeze their current rate, start at 0 hours.
+    function addEmployee(userId) {
+        // Don't add the same employee twice.
+        if (entries.some((e) => e.user_id === userId)) return;
 
-    const [selected, setSelected] = useState("");
-    const [nameInput, setNameInput] = useState("");
-    const [valueInput, setValueInput] = useState("");
+        const emp = hourlyEmployees.find((e) => e.id === userId);
+        if (!emp) return;
 
-    const keys = Object.keys(entries);
-
-    // Handle picking an option from the dropdown
-    function handleSelect(value) {
-        setSelected(value);
-
-        if (value === NEW || value === "") {
-            setNameInput("")
-            setValueInput("");
-        } else {
-            // Existing entry -> load it into the editable fields
-            setNameInput(value);
-            setValueInput(String(entries[value]));
-        }
+        const newEntry = {
+            user_id: emp.id,
+            name: emp.name,
+            hours: 0,
+            rate: emp.pay_rate,      // freeze the rate at add-time
+            cost: 0,
+        };
+        onChange([...entries, newEntry]);
     }
 
-    // ------ Validation -------
-    const trimmedName = nameInput.trim();
-    const numericValue = Number(valueInput);
-
-    const nameIsValid = trimmedName !== "";
-    const valueIsValid = valueInput !== "" && !isNaN(numericValue) && numericValue >= 0;
-
-    // New entries can't reuse a name; edits can keep their own name but not steal another
-    const nameCollision =
-        selected === NEW
-            ? keys.includes(trimmedName)
-            : trimmedName !== selected && keys.includes(trimmedName);
-
-    const canSubmit = nameIsValid && valueIsValid && !nameCollision;
-
-    // Add a brand new entry
-    function handleAdd() {
-        onChange({ ...entries, [trimmedName]: numericValue });
-        setNameInput("");
-        setValueInput("");
+    // Change an entry's hours -> recompute cost against the FROZEN rate.
+    function updateHours(userId, hoursValue) {
+        const h = Number(hoursValue);
+        onChange(
+            entries.map((e) =>
+                e.user_id === userId
+                    ? { ...e, hours: h, cost: (isNaN(h) ? 0 : h) * e.rate }
+                    : e
+            )
+        );
     }
 
-    // Save an edit to the selected entry (handles rename)
-    function handleSave() {
-        const updated = { ...entries };
-
-        if (trimmedName !== selected) {
-            delete updated[selected];
-        }
-
-        updated[trimmedName] = numericValue;
-        onChange(updated);
-        setSelected(trimmedName);
+    // Remove an entry.
+    function removeEmployee(userId) {
+        onChange(entries.filter((e) => e.user_id !== userId));
     }
 
-    // Remove the selected entry
-    function handleDelete() {
-        const updated = { ...entries };
-        delete updated[selected];
-        onChange(updated);
-
-        setSelected("");
-        setNameInput("");
-        setValueInput("");
-    }
-
-    const total = keys.reduce((sum, k) => sum + entries[k], 0);
+    const laborTotal = entries.reduce((sum, e) => sum + e.cost, 0);
 
     return (
         <div
@@ -355,74 +325,82 @@ function DictEditor({ title, entries, onChange }) {
                 marginBottom: "12px",
             }}
         >
-
-            <strong>{title}</strong> (total: ${total.toFixed(2)})
+            <strong>Employee Lobor</strong> (total: ${laborTotal.toFixed(2)})
 
             <br /><br />
 
-            <select 
-                value={selected}
-                onChange={(e) => handleSelect(e.target.value)}
-            >
-                <option value="">-- select --</option>
-
-                {keys.map((k) => (
-                    <option key={k} value={k}>
-                        {k}
-                    </option>
-                ))}
-
-                <option value={NEW}>+ New</option>
-            </select>
-
-            {selected !== "" && (
-
-                <div style={{ marginTop: "10px" }}>
-
-                    <label>Name</label>
-                    <input
-                        value={nameInput}
-                        onChange={(e) => setNameInput(e.target.value)}
-                    />
-
-                    <br /><br />
-
-                    <label>Amount</label>
-                    <input
-                        type="number"
-                        value={valueInput}
-                        onChange={(e) => setValueInput(e.target.value)}
-                    />
-
-                    <br /><br />
-
-                    {selected === NEW ? (
-                        <button onClick={handleAdd} disabled={!canSubmit}>
-                            Add 
-                        </button>
-                    ) : (
-                        <div style={{ display: "flex", gap: "10px" }}>
-                            <button onClick={handleSave} disabled={!canSubmit}>
-                                Save
-                            </button>
-                            <button onClick={handleDelete}>
-                                Delete 
-                            </button>
-                        </div>
-                    )}
-
-                    {nameCollision && (
-                        <div style={{ color: "red", marginTop: "6px" }}>
-                            That name already exists.
-                        </div>
-                    )}
-
-                </div> 
-
+            {/* Current entries */}
+            {entries.length === 0 && (
+                <div 
+                    style={{
+                        color: "#888",
+                        marginBottom: "8px"
+                    }}
+                >
+                    No Employees Added
+                </div>
             )}
 
+            {entries.map((e) => (
+                <div
+                    key={e.user_id}
+                    style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        marginBottom: "6px",
+                    }}
+                >
+                    <span style={{ width: "110px" }}>{e.name}</span>
+
+                    <input
+                        type="number"
+                        value={e.hours}
+                        onChange={(ev) => updateHours(e.user_id, ev.target.value)}
+                        style={{ width: "70px" }}
+                        placehoder="hrs"
+                    />
+
+                    <span 
+                        style={{
+                            color: "#777",
+                            fontSize: "0.9em",
+                        }}
+                    >
+                        × ${e.rate}/hr =
+                    </span>
+                    <span 
+                        style={{
+                            fontWeight: "bold",
+                            width: "80px",
+                        }}
+                    >
+                        ${e.cost.toFixed(2)}
+                    </span>
+
+                    <button onClick={() => removeEmployee(e.user_id)}>Remove</button>
+                </div>
+            ))}
+
+            <hr />
+
+            {/* Add an hourly employee not already added */}
+            <label>Add Employee</label>
+            <select 
+                value=""
+                onChange={(ev) => { if (ev.target.value) addEmployee(Number(ev.target.value));}}
+            >
+                <option value="">-- Select an Employee --</option>
+                {hourlyEmployees
+                    .filter((emp) => !entries.some((e) => e.user_id === emp.id))
+                    .map((emp) => (
+                        <option key={emp.id} value={emp.id}>
+                            {emp.name} (${emp.pay_rate}/hr)
+                        </option>
+                    ))}
+            </select>
         </div>
-    )
+    );
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -438,6 +416,8 @@ function Accounting() {
         return <div style={{ padding: "20px" }}>You don't have access to this page.</div>
     }
 
+    const [hourlyEmployees, setHourlyEmployees] = useState([]);
+
     const [jobs, setjobs] = useState([]);
     const [finances, setFinances] = useState([]);
     const [clients, setClients] = useState([]);
@@ -450,7 +430,7 @@ function Accounting() {
     const [editData, setEditData] = useState({
         money_in: "",
         materials_out: {},
-        employees_out: {},
+        employees_out: [],
     });
 
     useEffect(() => {
@@ -461,22 +441,29 @@ function Accounting() {
 
     async function loadData() {
         try {
-            const [jobsRes, financesRes, clientsRes, materialsRes] = await Promise.all([
-                apiFetch(`/jobs/`),
-                apiFetch(`/finances/`),
-                apiFetch(`/clients/`),
-                apiFetch(`/materials/`),
+            const [jobsRes, financesRes, clientsRes, materialsRes, usersRes] = await Promise.all([
+                apiFetch("/jobs/"),
+                apiFetch("/finances/"),
+                apiFetch("/clients/"),
+                apiFetch("/materials/"),
+                apiFetch("/users/"),
             ]);
 
             const jobsData = await jobsRes.json();
             const financesData = await financesRes.json();
             const clientsData = await clientsRes.json();
             const materialsCatalogData = await materialsRes.json();
+            const allUsers = await usersRes.json();
 
             setjobs(jobsData);
             setFinances(financesData);
             setClients(clientsData);
             setMaterialsCatalog(materialsCatalogData);
+            setHourlyEmployees(
+                allUsers.filter(
+                    (u) => u.is_active && u.pay_type === "Hourly" && u.pay_rate != null
+                )
+            );
         } catch (error) {
             console.error("Failed to load accounting data:", error);
         }
@@ -538,13 +525,13 @@ function Accounting() {
             setEditData({
                 money_in: String(existing.money_in),
                 materials_out: { ...existing.materials_out },
-                employees_out: { ...existing.employees_out },
+                employees_out: [...existing.employees_out],
             });
         } else {
             setEditData({
                 money_in: "",
                 materials_out: {},
-                employees_out: {},
+                employees_out: [],
             });
         }
 
@@ -597,7 +584,7 @@ function Accounting() {
 
     // Live profit preview (server still recomputes the authoritative value on save)
     const materialsTotal = Object.values(editData.materials_out).reduce((a, b) => a + b, 0);
-    const employeesTotal = Object.values(editData.employees_out).reduce((a, b) => a + b, 0);
+    const employeesTotal = editData.employees_out.reduce((sum, e) => sum + e.cost, 0);
     const projectedProfit = (Number(editData.money_in) || 0) - (materialsTotal + employeesTotal);
 
     return (
@@ -714,9 +701,9 @@ function Accounting() {
 
                         <br /><br />
 
-                        <DictEditor
-                            title="Employees"
+                        <EmployeeLaborEditor
                             entries={editData.employees_out}
+                            hourlyEmployees={hourlyEmployees}
                             onChange={(updated) =>
                                 setEditData({
                                     ...editData,
