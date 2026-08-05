@@ -1,7 +1,12 @@
 import { useState, useEffect  } from "react";
+
 import { apiFetch } from "../auth/apiFetch";
 import { useAuth } from "../auth/AuthContext";
 import { canManageContent } from "../auth/permissions";
+
+import SearchFilter from "../components/SearchFilter"
+
+import { useSearchParams } from "react-router-dom";
 
 const cellStyle = {
     border: "1px solid black",
@@ -27,11 +32,23 @@ function Jobs() {
     const { permissions } = useAuth();
     const canEdit = canManageContent(permissions);
 
+    const [searchParams, setSearchParams] = useSearchParams();
+
     const [jobs, setJobs] = useState([]);
     const [clients, setClients] = useState([]);
 
     const [showPopup, setShowPopup] = useState(false);
     const [selectedJob, setSelectedJob] = useState(null);
+
+    // Current search filter: which column, and the (lowercased) search text.
+    const [filter, setFilter] = useState({ column: "client", text: "" });
+
+    // Define which columns are filterable (matches your decision for Clients).
+    const filterColumns = [
+        { value: "client", label: "Client" },
+        { value: "address", label: "Address" },
+    ];
+
 
     const [editData, setEditData] = useState({
         client_id: "",
@@ -44,6 +61,19 @@ function Jobs() {
     useEffect(() => {
         loadData();
     }, []);
+
+    // If we arrived via "Convert to Job" (/jobs?newClientId=5), open the New Job
+    // popup with that client preselected — but only once clients are loaded, so
+    // the dropdown has the client available to select.
+    useEffect(() => {
+        const newClientId = searchParams.get("newClientId");
+
+        if (newClientId && clients.length > 0) {
+            openNewJobForClient(Number(newClientId));
+            // Clear the param so refreshing/re-rendering doesn't reopen it.
+            setSearchParams({});
+        }
+    }, [clients, searchParams]);
 
     // ----- API Helpers -----
 
@@ -98,6 +128,18 @@ function Jobs() {
         clientsById[c.id] = c;
     });
 
+    // Filter the jobs by the selected column + search text (substring, case-insensitive)
+    const filteredJobs = jobs.filter((job) => {
+        if (filter.text === "") return true;    // empty search shows everything
+
+        // Read the value for the selected column off this client.
+        let value = "";
+        if (filter.column === "client") value = clientsById[job.client_id]?.name ?? "";
+        else if (filter.column === "address") value = job.address ?? "";
+
+        return value.toLowerCase().includes(filter.text);
+    });
+
     // The addresses available for the client currently chosen in the form.
     // This is the "dependent" part: it recomputes whenever editData.client_id
     // changes, so the address dropdown always reflects the chosen client.
@@ -129,6 +171,21 @@ function Jobs() {
         });
 
         setShowPopup(true);
+    }
+
+    // Open the New Job popup with a specific client preselected (from "Convert
+    // to Job"). Loads that client's addresses so the address dropdown is ready.
+    function openNewJobForClient(clientId) {
+
+        setSelectedJob({ id: null });       // null = creating (not editing)
+        setEditData({
+            client_id: clientId,    // preselect the client 
+            client_address_id: "",
+            job_type: "Rad Power Washing",
+            description: "",
+            status: "New",
+        });
+        setShowPopup(true)
     }
 
     // Open the popup for an existing job. Note: the job stores a FROZEN address
@@ -229,6 +286,8 @@ function Jobs() {
 
             <h1>Jobs</h1>
 
+            <SearchFilter columns={filterColumns} onChange={setFilter} />
+
             <table 
                 style={{
                     width: "100%",
@@ -249,7 +308,7 @@ function Jobs() {
 
                 <tbody>
 
-                    {jobs.map((job) => (
+                    {filteredJobs.map((job) => (
 
                         <tr 
                             key={job.id}
@@ -303,18 +362,28 @@ function Jobs() {
                         <h2>{selectedJob?.id ? "Edit Job" : "New Job"}</h2>
 
                         <label>Client</label>
-                        <select 
-                            value={editData.client_id}
-                            onChange={(e) => handleClientChange(e.target.value)}
-                            disabled={!canEdit}
-                        >
-                            <option value="">-- Select a Client --</option>
-                            {clients.map((c) => (
-                                <option key={c.id} value={c.id}>
-                                    {c.name}
-                                </option>
-                            ))}
-                        </select>
+                        {isNewJob ? (
+                            // CREATING: show the client dropdown
+                            <select 
+                                value={editData.client_id}
+                                onChange={(e) => {
+                                    const cid = Number(e.target.value);
+                                    setEditData({ ...editData, client_id: cid, client_address_id: "" });
+
+                                }}
+                                disabled={!canEdit}
+                            >
+                                <option value="">-- Select a Client --</option>
+                                {clients.map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                        {c.name}
+                                    </option>
+                                ))}
+                            </select>
+                        ) : (
+                            // EDITING: client is fixed — show as text
+                            <div>{clientsById[selectedJob.client_id]?.name ?? "—"}</div>
+                        )}
 
                         <br /><br />
 
@@ -363,19 +432,6 @@ function Jobs() {
                                 }}
                             >
                                 This client has no addresses. Add one on the Clients page first.
-                            </div>
-                        )}
-
-                        {/* Show the current frozen address when editing an existing job */}
-                        {selectedJob?.id && (
-                            <div 
-                                style={{ 
-                                    color: "#777",
-                                    marginTop: "6px",
-                                    fontSize: "0.9em" 
-                                }}
-                            >
-                                Current address: {selectedJob.address}
                             </div>
                         )}
 

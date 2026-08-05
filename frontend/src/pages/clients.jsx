@@ -1,7 +1,12 @@
 import { useState, useEffect } from "react";
+
 import { apiFetch } from "../auth/apiFetch";
 import { useAuth } from "../auth/AuthContext";
 import { canManageContent } from "../auth/permissions";
+
+import SearchFilter from "../components/SearchFilter";
+
+import { useNavigate } from "react-router-dom";
 
 const cellStyle = {
     border: "1px solid black",
@@ -203,17 +208,48 @@ function AddressEditor({ addresses, onChange }) {
      );
 }
 
-// ------------------------------- Clients Page -------------------------------------
+// ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+//
+//                                                          CLIENTS PAGE
+//
+// ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 function Clients() {
+
     const { permissions } = useAuth();
     const canEdit = canManageContent(permissions);
+
+    const navigate = useNavigate();
 
     const [clients, setClients] = useState([]);
 
     const [showPopup, setShowPopup] = useState(false);
     const [selectedClient, setSelectedClient] = useState(null);
     const [deleteError, setDeleteError] = useState("");
+
+    // Current search filter: which column, and the (lowercased) search text.
+    const [filter, setFilter] = useState({ column: "name", text: "" });
+
+    // Define which columns are filterable (matches your decision for Clients).
+    const filterColumns = [
+        { value: "name", label: "Name" },
+        { value: "phone", label: "Phone" },
+        { value: "email", label: "Email" },
+    ];
+
+    // Filter the clients by the selected column + search text (substring, case-insensitive)
+    const filteredClients = clients.filter((c) => {
+        if (filter.text === "") return true;    // empty search shows everything
+
+        // Read the value for the selected column off this client.
+        let value = "";
+        if (filter.column === "name") value = c.name ?? "";
+        else if (filter.column === "phone") value = c.phone ?? "";
+        else if (filter.column === "email") value = c.email ?? "";
+
+        // Substring match (both already lowercased for case-insensitivity).
+        return (value ?? "").toLowerCase().includes(filter.text);
+    });
 
     const [editData, setEditData] = useState({
         name: "",
@@ -359,6 +395,8 @@ function Clients() {
 
             <h1>Clients</h1>
 
+            <SearchFilter columns={filterColumns} onChange={setFilter} />
+
             <table style={{
                 width: "100%",
                 borderCollapse: "collapse",
@@ -371,11 +409,12 @@ function Clients() {
                         <th style={cellStyle}>Phone</th>
                         <th style={cellStyle}>Email</th>
                         <th style={cellStyle}>Addresses</th>
+                        <th style={cellStyle}>Convert To Job</th>
                     </tr>
                 </thead>
 
                 <tbody>
-                    {clients.map((client) => (
+                    {filteredClients.map((client) => (
                         <tr
                             key={client.id}
                             onClick={() => handleClientClick(client)}
@@ -391,6 +430,16 @@ function Clients() {
                             <td style={cellStyle}>{client.phone}</td>
                             <td style={cellStyle}>{client.email}</td>
                             <td style={cellStyle}>{client.addresses.length}</td>
+                            <td style={cellStyle}>
+                                <button 
+                                    onClick={(e) => {
+                                        e.stopPropagation();    // don't also open the edit popup
+                                        navigate(`/jobs?newClientId=${client.id}`);
+                                    }}
+                                >
+                                    Convert
+                                </button>
+                            </td>
                         </tr>
                     ))}
                 </tbody>

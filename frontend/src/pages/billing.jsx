@@ -4,6 +4,8 @@ import { apiFetch } from "../auth/apiFetch";
 import { useAuth } from "../auth/AuthContext";
 import { isOwner } from "../auth/permissions";
 
+import SearchFilter from "../components/SearchFilter";
+
 const API_URL = "http://localhost:8000";
 
 const cellStyle = {
@@ -627,6 +629,15 @@ function Billing() {
     const [showPopup, setShowPopup] = useState(false);
     const [selectedInvoice, setSelectedInvoice] = useState(null);
 
+    // Current search filter: which column, and the (lowercased) search text.
+    const [filter, setFilter] = useState({ column: "client", text: "" });
+
+    const filterColumns = [
+        { value: "client", label: "Client" },
+        { value: "invoice_number", label: "Invoice #" },
+        { value: "title", label: "Title" },
+    ];
+
     const [actionError, setActionError] = useState("");
 
     const [editData, setEditData] = useState({
@@ -743,6 +754,17 @@ function Billing() {
         }
         return `$${Number(value).toFixed(2)}`;
     }
+
+    const filteredInvoices = invoices.filter((inv) => {
+        if (filter.text === "") return true;
+
+        let value = "";
+
+        if (filter.column === "client") value = clientNameForInvoice(inv) ?? "";
+        else if (filter.column === "invoice_number") value = inv.invoice_number ?? "";
+        else if (filter.column === "title") value = inv.invoice_title ?? "";
+        return String(value).toLowerCase().includes(filter.text);
+    });
 
     // ------ Handlers ---------
 
@@ -944,6 +966,8 @@ function Billing() {
 
             <h1>Billing</h1>
 
+            <SearchFilter columns={filterColumns} onChange={setFilter} />
+
             <table 
                 style={{
                     width: "100%",
@@ -962,7 +986,7 @@ function Billing() {
                     </tr>
                 </thead>
                 <tbody>
-                    {invoices.map((inv) => (
+                    {filteredInvoices.map((inv) => (
                         <tr
                             key={inv.id}
                             onClick={() => handleInvoiceClick(inv)}

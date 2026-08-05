@@ -10,6 +10,8 @@ from models.client_address import ClientAddress
 
 from schemas.client import ClientCreate 
 
+from datetime import datetime, timezone
+
 async def create_client(db: AsyncSession, data: ClientCreate) -> Client:
 
     # Build the parent, then attach each address as a child row. Appending to
@@ -19,6 +21,7 @@ async def create_client(db: AsyncSession, data: ClientCreate) -> Client:
         name=data.name,
         phone=data.phone, 
         email=data.email,
+        last_modified=datetime.now(timezone.utc)
     )
 
     for addr in data.addresses:
@@ -42,7 +45,9 @@ async def create_client(db: AsyncSession, data: ClientCreate) -> Client:
 async def get_clients(db: AsyncSession):
     # List all clients, each with addresses eagerly loaded.
     result = await db.execute(
-        select(Client).options(selectinload(Client.addresses))
+        select(Client)
+        .options(selectinload(Client.addresses))
+        .order_by(Client.last_modified.desc().nullslast())
     )
     return result.scalars().all()
 
@@ -87,6 +92,8 @@ async def update_client(db: AsyncSession, client_id: int, data: ClientCreate) ->
                 zip=addr.zip,
             )
         )
+
+    client.last_modified = datetime.now(timezone.utc)
 
     await db.commit()
     return await get_client_by_id(db, client.id)

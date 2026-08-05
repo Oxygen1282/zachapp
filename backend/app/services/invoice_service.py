@@ -154,6 +154,7 @@ async def create_invoice(db: AsyncSession, data: InvoiceCreate) -> Invoice:
         invoice_title=data.invoice_title,
         disclaimer=data.disclaimer,
         tax_location_id=data.tax_location_id,
+        last_modified=datetime.now(timezone.utc)
     )
 
     # Attach each line as a child row. Appending to invoice.items is enough —
@@ -207,7 +208,9 @@ async def get_invoices(db: AsyncSession):
 
     # List all invoices, each with its lines eagerly loaded
     result = await db.execute(
-        select(Invoice).options(selectinload(Invoice.items))
+        select(Invoice)
+        .options(selectinload(Invoice.items))
+        .order_by(Invoice.last_modified.desc().nullslast())
     )
     return result.scalars().all()
 
@@ -248,6 +251,8 @@ async def update_invoice(db: AsyncSession, invoice_id: int, data: InvoiceCreate)
 
     tax_rate = await _get_live_tax_rate(db, data.tax_location_id)
     _recompute_money(invoice, tax_rate)
+
+    invoice.last_modified = datetime.now(timezone.utc)
 
     await db.commit()
     return await get_invoice_by_id(db, invoice.id)
@@ -351,6 +356,8 @@ async def send_invoice(db: AsyncSession, invoice_id: int) -> Invoice:
     pdf_path = generate_invoice_pdf(invoice, client_name, job_address)
     invoice.pdf_path = pdf_path
 
+    invoice.last_modified = datetime.now(timezone.utc)
+
     # ---- Commit everything as one transaction ----
     await db.commit()
 
@@ -397,6 +404,8 @@ async def mark_invoice_paid(db: AsyncSession, invoice_id: int) -> Invoice:
     pdf_path = generate_invoice_pdf(invoice, client_name, job_address)
     invoice.pdf_path = pdf_path
 
+    invoice.last_modified = datetime.now(timezone.utc)
+
     # ---- Reflect onto the job: is EVERY invoice for this job now Paid? ----
     await _reflect_paid_status_on_job(db, invoice.job_id)
 
@@ -438,6 +447,8 @@ async def void_invoice(db: AsyncSession, invoice_id: int) -> Invoice:
 
     pdf_path = generate_invoice_pdf(invoice, client_name, job_address)
     invoice.pdf_path = pdf_path
+
+    invoice.last_modified = datetime.now(timezone.utc)
 
     await db.commit()
     return await get_invoice_by_id(db, invoice_id)

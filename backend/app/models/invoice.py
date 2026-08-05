@@ -1,6 +1,9 @@
 from sqlalchemy import Column, Integer, String, Float, Text, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
+
 from db.database import Base 
+
+from datetime import datetime, timezone
 
 # The invoice itself — the PARENT. One row per invoice. It owns many
 # invoice_items (the line items), and belongs to one job.
@@ -57,6 +60,10 @@ class Invoice(Base):
     # rendered on the PDF if non-empty. Text (not String) since it's a
     # paragraph. Editable while Draft.
     disclaimer = Column(Text, nullable=True)
+
+    # When this record was last created/edited — used to sort lists by
+    # most-recently-interacted. Updated on every save.
+    last_modified = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     # ----- Tax -----
 

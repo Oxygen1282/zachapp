@@ -1,6 +1,9 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
+
 from db.database import Base 
+
+from datetime import datetime, timezone
 
 class Job(Base):
     __tablename__ = "jobs"
@@ -23,6 +26,10 @@ class Job(Base):
     description = Column(Text, nullable=True)
     job_type = Column(String, nullable=False)
     status = Column(String, nullable=False, default="New")
+
+    # When this record was last created/edited — used to sort lists by
+    # most-recently-interacted. Updated on every save.
+    last_modified = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     # ----- Relationships -----
 

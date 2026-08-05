@@ -115,7 +115,9 @@ async def create_job_finances(db: AsyncSession, data: JobFinancesCreate) -> JobF
 
 # Return every finance record (used to pupulate the accounting table)
 async def get_all_finances(db: AsyncSession):
-    result = await db.execute(select(JobFinances))
+    result = await db.execute(
+        select(JobFinances).order_by(JobFinances.last_modified.desc().nullslast())
+    )
     return result.scalars().all()
 
 # Return the finances for a single job

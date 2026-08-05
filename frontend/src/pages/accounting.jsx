@@ -4,6 +4,8 @@ import { apiFetch } from "../auth/apiFetch";
 import { useAuth } from "../auth/AuthContext";
 import { isOwner } from "../auth/permissions";
 
+import SearchFilter from "../components/SearchFilter";
+
 const NEW_MATERIAL = "__new_material__";
 
 const cellStyle = {
@@ -105,7 +107,7 @@ function MaterialsEditor({ entries, catalog, onChange, onCatalogChanged }) {
 
     async function deleteCatalog(id) {
         try {
-            await apiFetch(`$/materials/${id}`, {
+            await apiFetch(`/materials/${id}`, {
                 method: "DELETE",
             });
             await onCatalogChanged();
@@ -325,7 +327,7 @@ function EmployeeLaborEditor({ entries, hourlyEmployees, onChange }) {
                 marginBottom: "12px",
             }}
         >
-            <strong>Employee Lobor</strong> (total: ${laborTotal.toFixed(2)})
+            <strong>Employee Labor</strong> (total: ${laborTotal.toFixed(2)})
 
             <br /><br />
 
@@ -358,7 +360,7 @@ function EmployeeLaborEditor({ entries, hourlyEmployees, onChange }) {
                         value={e.hours}
                         onChange={(ev) => updateHours(e.user_id, ev.target.value)}
                         style={{ width: "70px" }}
-                        placehoder="hrs"
+                        placeholder="hrs"
                     />
 
                     <span 
@@ -426,6 +428,15 @@ function Accounting() {
     const [showPopup, setShowPopup] = useState(false);
     const [selectedJob, setSelectedJob] = useState(null);
     const [hasFinances, setHasFinances] = useState(false);
+
+    // Current search filter: which column, and the (lowercased) search text.
+    const [filter, setFilter] = useState({ column: "client", text: "" });
+
+    // Define which columns are filterable (matches your decision for Clients).
+    const filterColumns = [
+        { value: "client", label: "Client" },
+        { value: "address", label: "Address" },
+    ];
 
     const [editData, setEditData] = useState({
         money_in: "",
@@ -504,6 +515,16 @@ function Accounting() {
     const clientsById = {};
     clients.forEach((c) => {
         clientsById[c.id] = c;
+    });
+
+    const filteredJobs = jobs.filter((job) => {
+        if (filter.text === "") return true;    // empty search shows everything
+
+        let value = "";
+
+        if (filter.column === "client") value = clientsById[job.client_id]?.name ?? "";
+        else if (filter.column === "address") value = job.address ?? "";
+        return value.toLowerCase().includes(filter.text);
     });
 
     function money(value) {
@@ -592,6 +613,8 @@ function Accounting() {
 
             <h1>Accounting</h1>
 
+            <SearchFilter columns={filterColumns} onChange={setFilter} />
+
             <table
                 style={{
                     width: "100%",
@@ -614,7 +637,7 @@ function Accounting() {
 
                 <tbody>
 
-                    {jobs.map((job) => {
+                    {filteredJobs.map((job) => {
                         const f = financesByJob[job.id];
 
                         return (

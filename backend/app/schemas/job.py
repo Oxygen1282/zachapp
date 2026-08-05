@@ -24,7 +24,6 @@ class JobCreate(JobBase):
 # UPDATE: address is OPTIONAL. If client_address_id is None, the job keeps its
 # existing frozen address; if provided, the address is re-resolved and re-frozen.
 class JobUpdate(JobBase):
-    client: int
     client_address_id: int | None = None
 
 class JobRead(JobBase):

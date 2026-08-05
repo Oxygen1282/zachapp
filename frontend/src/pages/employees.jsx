@@ -1,8 +1,11 @@
 import { useState, useEffect, useReducer } from "react";
+
 import { apiFetch } from "../auth/apiFetch";
 import { useAuth } from "../auth/AuthContext";
 import { canManageContent, isOwner } from "../auth/permissions";
+
 import PasswordInput from "../components/PasswordInput";
+import SearchFilter from "../components/SearchFilter";
 
 const cell = {
     border: "1px solid black",
@@ -69,6 +72,26 @@ function Employees() {
 
     // The timesheet viewer. Holds with employee we're viewing
     const [timesheetUser, setTimesheetUser] = useState(null);
+
+    // Current search filter: which column, and the (lowercased) search text.
+    const [filter, setFilter] = useState({ column: "client", text: "" });
+
+    const filterColumns = [
+        { value: "name", label: "Name" },
+        { value: "email", label: "Email" },
+        { value: "role", label: "Role" },
+    ];
+
+    const filteredUsers = users.filter((u) => {
+        if (filter.text === "") return true;
+
+        let value = "";
+
+        if (filter.column === "name") value = u.name;
+        else if (filter.column === "email") value = u.email;
+        else if (filter.column === "role") value = u.permissions;
+        return value.toLowerCase().includes(filter.text);
+    });
 
     useEffect(() => {
         loadUsers();
@@ -248,6 +271,8 @@ function Employees() {
             <h1>Employees</h1>
 
             {/* ----- The employee list ----- */}
+            <SearchFilter columns={filterColumns} onChange={setFilter} />
+
             <table 
                 style={{
                     width: "100%",
@@ -266,7 +291,7 @@ function Employees() {
                     </tr>
                 </thead>
                 <tbody>
-                    {users.map((u) => (
+                    {filteredUsers.map((u) => (
                         <tr 
                             key={u.id}
                             style={{
@@ -303,7 +328,9 @@ function Employees() {
                                                     {u.is_active ? "Deactivate" : "Reactivate"}
                                                 </button>
                                             )}
-                                            <button onClick={() => startDelete(u)}>Delete</button>
+                                            {u.permissions !== "Owner" && (
+                                                <button onClick={() => startDelete(u)}>Delete</button>
+                                            )}
                                         </>
                                     )}
                                 </div>
@@ -374,7 +401,7 @@ function Employees() {
                         >
                             <option value="Employee">Employee</option>
                             <option value="Manager">Manager</option>
-                            <option value="Owner">Owner</option>    
+                            {/* <option value="Owner">Owner</option> */}     
                         </select>
 
                         <br /><br />

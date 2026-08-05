@@ -9,6 +9,8 @@ from models.client_address import ClientAddress
 
 from schemas.job import JobCreate, JobUpdate
 
+from datetime import datetime, timezone
+
 # Compose the structured address fields into one display string. Single place
 # that decides address formatting, so the frozen job string and any future
 # on-screen rendering stay consistent. Skips the optional line 2 if empty.
@@ -66,6 +68,7 @@ async def create_job(db: AsyncSession, job_data: JobCreate) -> Job:
         description=job_data.description,
         job_type=job_data.job_type,
         status=job_data.status if job_data.status else "New",
+        last_modified=datetime.now(timezone.utc)
     )
 
     db.add(job)
@@ -74,7 +77,9 @@ async def create_job(db: AsyncSession, job_data: JobCreate) -> Job:
     return job 
 
 async def get_jobs(db: AsyncSession):
-    result = await db.execute(select(Job))
+    result = await db.execute(
+        select(Job).order_by(Job.last_modified.desc().nullslast())
+    )
     return result.scalars().all()
 
 async def get_job_by_id(db: AsyncSession, job_id: int):
@@ -96,7 +101,6 @@ async def update_job_service(db: AsyncSession, job_id: int, job_data: JobUpdate)
 
     job = await get_job_by_id(db, job_id)
 
-    job.client_id = job_data.client_id  
     job.description = job_data.description
     job.job_type = job_data.job_type
     job.status = job_data.status if job_data.status else "New"
@@ -104,7 +108,9 @@ async def update_job_service(db: AsyncSession, job_id: int, job_data: JobUpdate)
     # Only re-resolve/re-freeze the address if a new one was chosen.
     # If client_address_id is None, the job keeps its existing frozen address.
     if job_data.client_address_id is not None:
-        job.address = await _resolve_frozen_address(db, job_data.client_id, job_data.client_address_id)
+        job.address = await _resolve_frozen_address(db, job.client_id, job_data.client_address_id)
+
+    job.last_modified = datetime.now(timezone.utc)
 
     await db.commit()
     await db.refresh(job)
