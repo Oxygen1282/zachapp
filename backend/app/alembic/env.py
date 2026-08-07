@@ -22,6 +22,8 @@ from models.client_address import ClientAddress     # noqa: F401
 from models.tax_location import TaxLocation         # noqa: F401
 from models.material import Material                # noqa: F401
 from models.timesheet import Timesheet              # noqa: F401
+from models.estimate import Estimate                # noqa: F401
+from models.estimate_item import EstimateItem       # noqa: F401
 # -------------------------------------------------------------------------
 
 # this is the Alembic Config object, which provides

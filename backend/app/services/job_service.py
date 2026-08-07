@@ -1,11 +1,13 @@
 from sqlalchemy.ext.asyncio import AsyncSession 
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from fastapi import HTTPException
 
 from models.job import Job
 from models.client import Client 
 from models.client_address import ClientAddress
+from models.invoice import Invoice
+from models.estimate import Estimate
 
 from schemas.job import JobCreate, JobUpdate
 
@@ -119,6 +121,22 @@ async def update_job_service(db: AsyncSession, job_id: int, job_data: JobUpdate)
 async def delete_job_service(db: AsyncSession, job_id: int):
     
     job = await get_job_by_id(db, job_id)
+
+    # Block if any invoice references this job
+    invoice_count = await db.execute(
+        select(func.count()).select_from(Invoice).where(Invoice.job_id == job_id)
+    )
+    if invoice_count.scalar_one() > 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete a job that has invoices. Delete the invoices first."
+        )
+
+    # Unlink any estimates pointing at this job (they revert to job-less).
+    result = await db.execute(select(Estimate).where(Estimate.job_id == job_id))
+    linked_estimates = result.scalars().all()
+    for est in linked_estimates:
+        est.job_id = None
 
     await db.delete(job)
     await db.commit()

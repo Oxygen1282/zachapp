@@ -11,6 +11,7 @@ from api import clients
 from api import tax_locations
 from api import materials 
 from api import timesheets
+from api import estimates
 
 from models.job import Job
 from models.job_finances import JobFinances
@@ -44,6 +45,8 @@ app.include_router(clients.router)
 app.include_router(tax_locations.router)
 app.include_router(materials.router)
 app.include_router(timesheets.router)
+app.include_router(estimates.router)    # owner routes (/estimates)
+app.include_router(estimates.public_router)     # public routes (/pulic/estimates)
 
 app.add_middleware(
     CORSMiddleware,

@@ -2,11 +2,11 @@ import { useState, useEffect  } from "react";
 
 import { apiFetch } from "../auth/apiFetch";
 import { useAuth } from "../auth/AuthContext";
-import { canManageContent } from "../auth/permissions";
+import { canManageContent, isOwner } from "../auth/permissions";
 
 import SearchFilter from "../components/SearchFilter"
 
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 const cellStyle = {
     border: "1px solid black",
@@ -14,6 +14,8 @@ const cellStyle = {
 };
 
 const STATUSES = [
+        "No Estimates",
+        "Estimate Drafted",
         "New",
         "Estimate Sent",
         "Scheduled",
@@ -31,14 +33,21 @@ const JOB_TYPES = [
 function Jobs() {
     const { permissions } = useAuth();
     const canEdit = canManageContent(permissions);
+    const isOwnerUser = isOwner(permissions);
 
     const [searchParams, setSearchParams] = useSearchParams();
 
+    const navigate = useNavigate();
+
+    const [convertingEstimateId, setConvertingEstimateId] = useState(null);
+
     const [jobs, setJobs] = useState([]);
     const [clients, setClients] = useState([]);
+    const [estimates, setEstimates] = useState([]);
 
     const [showPopup, setShowPopup] = useState(false);
     const [selectedJob, setSelectedJob] = useState(null);
+    const [actionError, setActionError] = useState("");
 
     // Current search filter: which column, and the (lowercased) search text.
     const [filter, setFilter] = useState({ column: "client", text: "" });
@@ -72,8 +81,29 @@ function Jobs() {
             openNewJobForClient(Number(newClientId));
             // Clear the param so refreshing/re-rendering doesn't reopen it.
             setSearchParams({});
+            return;
         }
-    }, [clients, searchParams]);
+
+        // From estimates "Convert to Job" — prefill from the estimate.
+        const fromEstimate = searchParams.get("fromEstimate");
+        if (fromEstimate && clients.length > 0 && estimates.length > 0) {
+            openNewJobFromEstimate(Number(fromEstimate));
+            setSearchParams({});
+            return;
+        }
+
+        // From estimates "Go to Job" — open that job's edit popup.
+        const openJob = searchParams.get("openJob");
+        if (openJob && jobs.length > 0) {
+            const job = jobs.find((j) => j.id === Number(openJob));
+            if (job) {
+                handleJobClick(job);
+                setSearchParams({});
+            }
+            return;
+        }
+
+    }, [clients, jobs, estimates, searchParams]);
 
     // ----- API Helpers -----
 
@@ -84,11 +114,16 @@ function Jobs() {
                 apiFetch(`/clients`),
             ]);
 
-            const jobsData = await jobsRes.json();
-            const clientsData = await clientsRes.json();
+            setJobs(await jobsRes.json());
+            setClients(await clientsRes.json());
 
-            setJobs(jobsData);
-            setClients(clientsData);
+            // Estimates are owner-only — a manager gets 403. Load them only if allowed.
+            if (isOwnerUser) {
+                const estimatesRes = await apiFetch(`/estimates/`);
+                if (estimatesRes.ok) {
+                    setEstimates(await estimatesRes.json());
+                }
+            }
         } catch (error) {
             console.error("Failed to load jobs data:", error);
         }
@@ -115,9 +150,24 @@ function Jobs() {
     }
 
     async function deleteJobFromDatabase(id) {
-        await apiFetch(`/jobs/${id}`, {
-            method: "DELETE",
+        const response = await apiFetch(`/jobs/${id}`, { method: "DELETE" });
+        if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.detail || "Failed to delete job");
+        }
+    }
+
+    async function linkEstimateToJob(estimateId, jobId, address) {
+        const response = await apiFetch(`/estimates/${estimateId}/link-job`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ job_id: jobId, address }),
         });
+        if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.detail || "Failed to link estimate");
+        }
+        return await response.json();
     }
 
     // ----- Helpers -----
@@ -126,6 +176,15 @@ function Jobs() {
     const clientsById = {};
     clients.forEach((c) => {
         clientsById[c.id] = c;
+    });
+
+    // Estimates grouped by the job they're linked to.
+    const estimatesByJob = {};
+    (Array.isArray(estimates) ? estimates : []).forEach((est) => {
+        if (est.job_id != null) {
+            if (!estimatesByJob[est.job_id]) estimatesByJob[est.job_id] = [];
+                estimatesByJob[est.job_id].push(est);
+        }
     });
 
     // Filter the jobs by the selected column + search text (substring, case-insensitive)
@@ -152,7 +211,7 @@ function Jobs() {
         if (addr.street_line2) {
             parts.push(addr.street_line2);
         }
-        parts.push(`${addr.city}, ${addr.state}, ${addr.zip}`);
+        parts.push(`${addr.city}, ${addr.state} ${addr.zip}`);
         return parts.join(", ");
     }
 
@@ -185,7 +244,42 @@ function Jobs() {
             description: "",
             status: "New",
         });
-        setShowPopup(true)
+        setShowPopup(true);
+    }
+
+    // Open the New Job popup prefilled from an estimate (Convert to Job). Matches
+    // the estimate's frozen address to a live client address if possible; if not,
+    // leaves the address empty for the owner to pick. Enters "conversion mode" so
+    // the save links the estimate afterward.
+    function openNewJobFromEstimate(estimateId) {
+        const estimate = estimates.find((e) => e.id === estimateId);
+        if (!estimate) return;
+
+        const client = clientsById[estimate.client_id];
+        if (!client) return;
+
+        // Try to match the frozen address string to one of the client's addresses.
+        let matchedAddressId = "";
+        for (const addr of (client.addresses ?? [])) {
+            if (composeAddress(addr) === estimate.address) {
+                matchedAddressId = String(addr.id);
+                break;
+            }
+        }
+
+        setSelectedJob({ id: null });
+        setEditData({
+            client_id: estimate.client_id,
+            client_address_id: matchedAddressId,    // preselected if matched, else ""
+            description: "",
+            job_type: "Rad Power Washing",
+            status: "Estimate Drafted",             // born from an estimate
+        });
+
+        // Remember we're converting THIS estimate, so the save links it.
+        setConvertingEstimateId(estimateId);
+
+        setShowPopup(true);
     }
 
     // Open the popup for an existing job. Note: the job stores a FROZEN address
@@ -248,11 +342,17 @@ function Jobs() {
 
             // New job
             else {
-                await createJobInDatabase(jobData);
+                const newJob = await createJobInDatabase(jobData);
+
+                // Conversion mode: link the estimate to the new job.
+                if (convertingEstimateId) {
+                    await linkEstimateToJob(convertingEstimateId, newJob.id, newJob.address);
+                    setConvertingEstimateId(null);
+                }
             }
 
             await loadData();
-            setShowPopup(false);
+            closePopup();
         } catch (error) {
             console.error("Failed to save job:", error);
         }
@@ -266,11 +366,16 @@ function Jobs() {
             }
 
             await loadData();
-            setShowPopup(false);
+            closePopup();
             setSelectedJob(null);
         } catch (error) {
-            console.error("Failed to delete job:", error);
+            setActionError(error.message);
         }
+    }
+
+    function closePopup() {
+        setShowPopup(false);
+        setConvertingEstimateId(null);
     }
 
     return (
@@ -303,6 +408,7 @@ function Jobs() {
                         <th style={cellStyle}>Job Type</th>
                         <th style={cellStyle}>Description</th>
                         {canEdit && <th style={cellStyle}>Status</th>}
+                        {isOwnerUser && <th style={cellStyle}>Estimates</th>}
                     </tr>
                 </thead>
 
@@ -326,6 +432,48 @@ function Jobs() {
                             <td style={cellStyle}>{job.job_type}</td>
                             <td style={cellStyle}>{job.description}</td>
                             {canEdit && <td style={cellStyle}>{job.status}</td>}
+                            {isOwnerUser && <td style={cellStyle} onClick={(e) => e.stopPropagation()}>
+                                {(() => {
+                                    const jobEstimates = estimatesByJob[job.id] ?? [];
+
+                                    // No estimates yet → Create Estimate (Flow 2)
+                                    if (jobEstimates.length === 0) {
+                                        return (
+                                            <button onClick={() => navigate(`/estimates?newJobId=${job.id}`)}>
+                                                Create Estimate
+                                            </button>
+                                        );
+                                    }
+
+                                    // Exactly one -> View Estimate (jump straight to it)
+                                    if (jobEstimates.length === 1) {
+                                        return (
+                                            <button onClick={() => navigate(`/estimates?openEstimate=${jobEstimates[0].id}`)}>
+                                                View Estimate
+                                            </button>
+                                        );
+                                    }
+
+                                    // Two or more → dropdown to pick one
+                                    return (
+                                        <select
+                                            value=""
+                                            onChange={(e) => {
+                                                if (e.target.value) {
+                                                    navigate(`/estimates?openEstimate=${e.target.value}`);
+                                                }
+                                            }}
+                                        >
+                                            <option value="">-- View Estimate --</option>
+                                            {jobEstimates.map((est) => (
+                                                <option key={est.id} value={est.id}>
+                                                    #{est.estimate_number ? est.estimate_number.slice(4) : "Draft"} ({est.status})
+                                                </option>
+                                            ))}
+                                        </select>
+                                    );
+                                })()}
+                            </td>}
                         </tr>
                     ))}
 
@@ -468,7 +616,22 @@ function Jobs() {
                                     value={editData.status}
                                     onChange={(e) => setEditData({ ...editData, status: e.target.value })}
                                 >
-                                    {STATUSES.map((status) => (
+                                    {STATUSES
+                                        .filter((s) => {
+                                            const hasEstimates = (estimatesByJob[selectedJob?.id] ?? []).length > 0;
+
+                                            // Estimate-related statuses require the job to actually have estimates.
+                                            if ((s === "Estimate Drafted" || s === "Estimate Sent") && !hasEstimates) {
+                                                return false;
+                                            }
+
+                                            // Hide "No Estimates" if this job actually has estimates.
+                                            if (s === "No Estimates" && hasEstimates) {
+                                                return false;
+                                            }
+                                            return true;
+                                        })
+                                        .map((status) => (
                                         <option key={status} value={status}>
                                             {status}
                                         </option>
@@ -477,6 +640,17 @@ function Jobs() {
 
                                 <br /><br />
                             </>
+                        )}
+
+                        {actionError && (
+                            <div 
+                                style={{
+                                    color: "red",
+                                    marginBottom: "10px",
+                                }}
+                            >
+                                {actionError}
+                            </div>
                         )}
 
                         <div
@@ -496,7 +670,7 @@ function Jobs() {
                                 {canEdit && (
                                     <button onClick={saveChanges} disabled={!canSave}>Save</button>
                                 )}
-                                <button onClick={() => setShowPopup(false)}>Close</button>
+                                <button onClick={closePopup}>Close</button>
                             </div>
 
                             {canEdit && selectedJob?.id && (

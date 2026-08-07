@@ -6,7 +6,8 @@ from fastapi import HTTPException
 
 from models.job import Job
 from models.client import Client 
-from models.client_address import ClientAddress 
+from models.client_address import ClientAddress
+from models.estimate import Estimate
 
 from schemas.client import ClientCreate 
 
@@ -115,6 +116,19 @@ async def delete_client(db: AsyncSession, client_id: int):
         raise HTTPException(
             status_code=400,
             detail="Cannot delete a client that still has jobs. Delete or reassign the jobs first",
+        )
+
+    # Block deletion if this client still has estimates. Same reasoning: a
+    # client with estimates shouldn't be wiped out from under them (and it's
+    # what keeps the public estimate view's "client is None" case theoretical).
+    estimate_count = await db.execute(
+        select(func.count()).select_from(Estimate).where(Estimate.client_id == client_id)
+    )
+
+    if estimate_count.scalar_one() > 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete a client that still has estimatees. Delete the estimates first",
         )
     
     await db.delete(client)

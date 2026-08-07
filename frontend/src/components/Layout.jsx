@@ -15,8 +15,9 @@ function Layout() {
 
     // Owner-only Pages
     if (isOwner(permissions)) {
-        navItems.push({ to: "/accounting", label: "Accounting" });
+        navItems.push({ to: "/estimates", label: "Estimates"});
         navItems.push({ to: "/billing", label: "Billing" });
+        navItems.push({ to: "/accounting", label: "Accounting" });
         navItems.push({ to: "/contracts", label: "Contracts" });
     }
 

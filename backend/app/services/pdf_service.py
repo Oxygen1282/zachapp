@@ -5,6 +5,7 @@ from jinja2 import Environment, FileSystemLoader
 from weasyprint import HTML 
 
 from models.invoice import Invoice 
+from models.estimate import Estimate
 
 # Where the template + logo live, and where finished PDFs get written.
 TEMPLATE_DIR = "/app/app/templates"
@@ -28,7 +29,7 @@ def _build_filename(client_name: str, invoice_number: str) -> str:
 # Build the flat dict of values the template expects, out of the invoice and
 # its related objects. This is the ONE place that decides how each field is
 # presented (dates formatted, due date computed, is_paid derived).
-def _build_context(invoice: Invoice, client_name: str, job_address: str) -> dict:
+def _build_invoice_context(invoice: Invoice, client_name: str, job_address: str) -> dict:
 
     # Due date display: "On Completion", or issued + due_days as a date.
     if invoice.due_type == "days" and invoice.due_days is not None and invoice.date_issued:
@@ -78,7 +79,7 @@ def generate_invoice_pdf(invoice: Invoice, client_name: str, job_address: str) -
 
     # 1. Fill the template with this invoice's data.
     template = _jinja_env.get_template("invoice.html")
-    html_string = template.render(_build_context(invoice, client_name, job_address))
+    html_string = template.render(_build_invoice_context(invoice, client_name, job_address))
 
     # 2. Make sure the output directory exists (the volume is mounted, but the
     #    folder may not exist on a fresh volume).
@@ -94,4 +95,62 @@ def generate_invoice_pdf(invoice: Invoice, client_name: str, job_address: str) -
     HTML(string=html_string, base_url=TEMPLATE_DIR).write_pdf(output_path)
 
     # 5. Hand back the path so the caller can store it on the invoice
+    return output_path
+
+# Build the template context for an estimate. Simpler than the invoice: no due
+# date, no paid date. The watermark reflects the estimate's status.
+def _build_estimate_context(estimate: Estimate, client_name: str, address: str) -> dict:
+
+    sent_display = estimate.date_sent.strftime("%b %d, %Y") if estimate.date_sent else ""
+    signed_display = estimate.signed_date.strftime("%b %d, %Y") if estimate.signed_date else ""
+
+    # Watermark by status: green APPROVED, or none. (Awaiting states / drafts
+    # get no watermark; archived estimates aren't downloaded by customers.)
+    if estimate.status == "Approved":
+        watermark = "approved"
+    else:
+        watermark = ""
+
+    return {
+        "client_name": client_name,
+        "address": address,
+
+        "estimate_number": estimate.estimate_number,
+        "estimate_title": estimate.estimate_title,
+        "sent_data": sent_display,
+        "status": estimate.status,
+
+        "items": estimate.items,
+
+        "subtotal": estimate.subtotal,
+        "tax_name": estimate.tax_name,
+        "tax_percentage": estimate.tax_percentage,
+        "tax_amount": estimate.tax_amount,
+        "total": estimate.total,
+
+        "disclaimer": estimate.disclaimer,
+
+         # The signature block (shown on the PDF once approved).
+         "signature": estimate.signature,
+         "signed_date": signed_display,
+
+         "watermark": watermark,
+    }
+
+# Render an estimate to a PDF on disk. Returns the path to store in
+# estimate.pdf_path. Called at send, and re-called on re-send/approve so the
+# PDF reflects the current state (revised lines, or the approval signature).
+def generate_estimate_pdf(estimate: Estimate, client_name: str, address: str) -> str:
+
+    template = _jinja_env.get_template("estimate.html")
+    html_string = template.render(_build_estimate_context(estimate, client_name, address))
+
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    # Reuse the same filename helper — client name + estimate number.
+    filename = _build_filename(client_name, estimate.estimate_number)
+    output_path = os.path.join(OUTPUT_DIR, filename)
+
+    HTML(string=html_string, base_url=TEMPLATE_DIR).write_pdf(output_path)
+
     return output_path

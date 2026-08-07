@@ -409,7 +409,7 @@ function Clients() {
                         <th style={cellStyle}>Phone</th>
                         <th style={cellStyle}>Email</th>
                         <th style={cellStyle}>Addresses</th>
-                        <th style={cellStyle}>Convert To Job</th>
+                        {canEdit && <th style={cellStyle}>Convert To Job</th>}
                     </tr>
                 </thead>
 
@@ -430,7 +430,7 @@ function Clients() {
                             <td style={cellStyle}>{client.phone}</td>
                             <td style={cellStyle}>{client.email}</td>
                             <td style={cellStyle}>{client.addresses.length}</td>
-                            <td style={cellStyle}>
+                            {canEdit && <td style={cellStyle}>
                                 <button 
                                     onClick={(e) => {
                                         e.stopPropagation();    // don't also open the edit popup
@@ -439,7 +439,7 @@ function Clients() {
                                 >
                                     Convert
                                 </button>
-                            </td>
+                            </td>}
                         </tr>
                     ))}
                 </tbody>

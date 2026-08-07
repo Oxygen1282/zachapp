@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+    /* ---- Page setup ---- */
+    @page {
+        size: letter;
+        margin: 1.5cm 2cm;
+    }
+
+    body {
+        font-family: Arial, Helvetica, sans-serif;
+        font-size: 11px;
+        color: #222;
+        margin: 0;
+    }
+
+    /* ---- Header ---- */
+    .header {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 24px;
+    }
+    .header img {
+        width: 90px;
+        height: auto;
+    }
+    .business-name {
+        font-size: 22px;
+        font-weight: bold;
+        margin: 0;
+    }
+    .business-details {
+        font-size: 10px;
+        color: #444;
+        line-height: 1.4;
+    }
+
+    /* ---- Recipient + estimate info row ---- */
+    .info-row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 24px;
+    }
+    .recipient {
+        max-width: 45%;
+    }
+    .recipient .label{
+        font-size: 9px;
+        font-weight: bold;
+        letter-spacing: 0.5px;
+        color: #777;
+    }
+    .estimate-box {
+        width: 45%;
+    }
+    .estimate-box .title-bar {
+        background-color: #4a90b8;
+        color: #fff;
+        font-size: 16px;
+        font-weight: bold;
+        padding: 8px 12px;
+    }
+    .estimate-box table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    .estimate-box td {
+        padding: 5px 12px;
+        border-bottom: 1px solid #eee;
+    }
+    .estimate-box td.value {
+        text-align: right;
+    }
+    .estimate-box tr.total-row td {
+        background-color: #4a90b8;
+        color: #fff;
+        font-weight: bold;
+    }
+
+    /* ---- estimate title line ---- */
+    .estimate-title {
+        font-size: 14px;
+        font-weight: bold;
+        margin-bottom: 8px;
+    }
+
+    /* ---- Line items ---- */
+    table.items {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 20px
+    }
+    table.items thead td {
+        background-color: #4a90b8;
+        color: #fff;
+        font-weight: bold;
+        padding: 8px;
+    }
+    table.items td {
+        padding: 8px;
+        vertical-align: top;
+    }
+    table.items tbody tr{
+        border-bottom: 1px solid #e5e5e5;
+    }
+    td.num {
+        text-align: right;
+        white-space: nowrap;
+    }
+
+    /* ---- Summary ---- */
+    .summary {
+        width: 45%;
+        margin-left: 55%;
+    }
+    .summary table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    .summary td {
+        padding: 6px 8px;
+        border-bottom: 1px solid #e5e5e5;
+    }
+    .summary td.value {
+        text-align: right;
+    }
+    .summary tr.grand-total td {
+        font-weight: bold;
+        font-size: 13px;
+        border-bottom: 2px solid #222;
+    }
+
+    /* ---- Disclaimer ---- */
+    .disclaimer {
+        margin-top: 30px;
+        font-size: 10px;
+        color: #444;
+        line-height: 1.5;
+    }
+
+    /* ---- Approval watermark (only rendered when approved) ---- */
+    .watermark {
+        position: fixed;
+        top: 45%;
+        left: 20%;
+        font-size: 120px;
+        font-weight: bold;
+        transform: rotate(-30deg);
+        z-index: -1;
+    }
+    .watermark.approved {
+        color: rgba(70, 160, 90, 0.25); /* Green */
+    }
+
+    /* ---- Signature block ---- */
+    .signature-block {
+        margin-top: 30px;
+        border-top: 1px solid #ccc;
+        padding-top: 12px;
+    }
+    .signature-block .label {
+        font-size: 9px;
+        font-weight: bold;
+        letter-spacing: 0.5px;
+        color: #777;
+    }
+    .signature-name {
+        font-size: 16px;
+        font-style: italic;
+        margin-top: 6px;
+    }
+    .signature-date {
+        font-size: 10px;
+        color: #444;
+    }
+
+</style>
+</head>
+<body>
+
+    {% if watermark %}
+    <div class="watermark {{ watermark }}">{{ watermark|upper }}</div>
+    {% endif %}
+
+    <!-- Header -->
+    <div class="header">
+        <img src="logo.png" alt="Rad Power Washing">
+        <div>
+            <p class="business-name">Rad Power Washing</p>
+            <div class="business-details">
+                742 Brentwood Boulevard&nbsp; |&nbsp; Akron, Ohio 44321<br>
+                330-419-6860&nbsp; |&nbsp; zachr@radpw.com&nbsp; |&nbsp; www.radpowerwashing.com
+            </div>
+        </div>
+    </div>
+
+    <!-- Recipient + estimate info -->
+    <div class="info-row">
+        <div class="recipient">
+            <div class="label">RECIPIENT:</div>
+            {{ client_name }}<br>
+            {{ address }}
+        </div>
+
+        <div class="estimate-box">
+            <div class="title-bar">Estimate #{{ estimate_number[4:] if estimate_number else "" }}</div>
+            <table>
+                <tr>
+                    <td>Sent</td>
+                    <td class="value">{{ sent_date }}</td>
+                </tr>
+                <tr>
+                    <td>Status</td>
+                    <td class="value">{{ status }}</td>
+                </tr>
+                <tr class="total-row">
+                    <td>Total</td>
+                    <td class="value">${{ "%.2f"|format(total) }}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    <!-- estimate title -->
+    {% if estimate_title %}
+    <div class="estimate-title">{{ estimate_title }}</div>
+    {% endif %}
+
+    <!-- Line items -->
+    <table class="items">
+        <thead>
+            <tr>
+                <td>Product/Service</td>
+                <td>Description</td>
+                <td class="num">Qty.</td>
+                <td class="num">Unit Price</td>
+                <td class="num">Total</td>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in items %}
+            <tr>
+                <td>{{ item.name }}</td>
+                <td>{{ item.description }}</td>
+                <td class="num">{{ item.quantity }}</td>
+                <td class="num">${{ "%.2f"|format(item.unit_price) }}</td>
+                <td class="num">${{ "%.2f"|format(item.line_total) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- Summary -->
+    <div class="summary">
+        <table>
+            <tr>
+                <td>Subtotal</td>
+                <td class="value">${{ "%.2f"|format(subtotal) }}</td>
+            </tr>
+            {% if tax_name %}
+            <tr>
+                <td>{{ tax_name }} ({{ tax_percentage }}%)</td>
+                <td class="value">${{ "%.2f"|format(tax_amount) }}</td>
+            </tr>
+            {% endif %}
+            <tr class="grand-total">
+                <td>Total</td>
+                <td class="value">${{ "%.2f"|format(total) }}</td>
+            </tr>
+        </table>
+    </div>
+
+    <!-- Disclaimer -->
+    <div class="disclaimer">
+        This quote is valid for the next 30 days, after which values may be subject to change.
+        {% if disclaimer %}<br><br>{{ disclaimer }}{% endif %}
+    </div>
+
+    <!-- Signature block (shown once the customer has approved) -->
+    {% if signature %}
+    <div class="signature-block">
+       <div class="label">APPROVED &amp; SIGNED</div>
+       <div class="signature-name">{{ signature }}</div>
+       <div class="signature-date">{{ signed_date }}</div>
+    </div>
+    {% endif %}
+    
+</body>
+</html>
