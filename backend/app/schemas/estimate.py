@@ -18,6 +18,7 @@ class EstimateCreate(BaseModel):
     client_address_id: int | None = None
 
     estimate_title: str | None = None 
+    job_type: Literal["Rad Power Washing", "Rad Renovations"] = "Rad Power Washing"
     disclaimer: str | None = None 
 
     # Which tax location is selected. Optional (None = no tax). This is the
@@ -37,6 +38,7 @@ class EstimateRead(BaseModel):
     address: str 
 
     estimate_title: str | None = None 
+    job_type: str
     disclaimer: str | None = None
 
     # Backend-owned lifecycle fields (see the models). Nullable ones are
@@ -99,6 +101,12 @@ class EstimatePublicRead(BaseModel):
     # Frozen tax display 
     tax_name: str | None = None 
     tax_percentage: float | None = None 
+
+    # Per-response signal, set ONLY during a send/resend operation — "sent" or
+    # "failed". Not a DB column; it reflects whether the email went out on THIS
+    # response. None on any other response (list, get, update), which is why it
+    # must be Optional with a default.
+    email_status: str | None = None
 
     subtotal: float 
     tax_amount: float 

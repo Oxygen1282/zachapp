@@ -36,6 +36,7 @@ from services.estimate_service import (
     approve_estimate,
     request_changes,
     link_estimate_to_job,
+    resend_estimate_email,
 )
 
 router = APIRouter(prefix="/estimates", tags=["estimates"])
@@ -49,7 +50,7 @@ async def create(
 ):
     return await create_estimate(db, data)
 
-# Send/Resend - owner only
+# Send - owner only
 @router.post("/{estimate_id}/send", response_model=EstimateRead)
 async def send(
     estimate_id: int,
@@ -57,6 +58,15 @@ async def send(
     _: User = Depends(require_owner),
 ):
     return await send_estimate(db, estimate_id)
+
+# Resend the "View Estimate" email for an already-sent estimate. Owner-only.
+@router.post("/{estimate_id}/resend-email", response_model=EstimateRead)
+async def resend_email(
+    estimate_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_owner),
+):
+    return await resend_estimate_email(db, estimate_id)
 
 # Archive toggle - owner only
 @router.post("/{estimate_id}/toggle-archive", response_model=EstimateRead)
@@ -136,6 +146,12 @@ async def delete(
     owner: User = Depends(require_owner),
 ):
     return await delete_estimate(db, estimate_id, owner, data)
+
+# ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#
+#                                                       PUBLIC ROUTER
+#
+# ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 # A SEPARATE router for the public, unauthenticated customer surface. No
 # require_owner — the token in the URL is the only credential. Mounted at

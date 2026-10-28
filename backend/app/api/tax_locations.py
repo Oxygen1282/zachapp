@@ -33,7 +33,7 @@ async def list_tax_locations(
 ):
     return await get_tax_locations(db)
 
-@router.get("/{locations_id}", response_model=TaxLocationRead)
+@router.get("/{location_id}", response_model=TaxLocationRead)
 async def get_one(
     location_id: int,
     db: AsyncSession = Depends(get_db),

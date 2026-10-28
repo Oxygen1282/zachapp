@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { Navigate, useNavigate } from "react-router-dom";
+
 import { useAuth } from "../auth/AuthContext";
 import PasswordInput from "../components/PasswordInput";
 
@@ -18,7 +20,7 @@ function Login() {
             await login(email, password);
 
             // Land on the default page, not wherever the URL was left.
-            window.history.replaceState({}, "", "/");
+            Navigate("/", {replace: true });    // Router-aware redirect
             
         } catch (err) {
             setError(err.message);

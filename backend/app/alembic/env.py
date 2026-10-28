@@ -10,20 +10,22 @@ from alembic import context
 
 # --- App metadata + models -----------------------------------------------
 from db.database import Base 
-from models.job import Job                          # noqa: F401
-from models.job_finances import JobFinances         # noqa: F401
-from models.scheduled_job import ScheduledJob       # noqa: F401
-from models.user import User                        # noqa: F401
-from models.item import Item                        # noqa: F401
-from models.invoice import Invoice                  # noqa: F401
-from models.invoice_item import InvoiceItem         # noqa: F401
-from models.client import Client                    # noqa: F401
-from models.client_address import ClientAddress     # noqa: F401
-from models.tax_location import TaxLocation         # noqa: F401
-from models.material import Material                # noqa: F401
-from models.timesheet import Timesheet              # noqa: F401
-from models.estimate import Estimate                # noqa: F401
-from models.estimate_item import EstimateItem       # noqa: F401
+from models.job import Job                                  # noqa: F401
+from models.job_finances import JobFinances                 # noqa: F401
+from models.scheduled_job import ScheduledJob               # noqa: F401
+from models.user import User                                # noqa: F401
+from models.item import Item                                # noqa: F401
+from models.invoice import Invoice                          # noqa: F401
+from models.invoice_item import InvoiceItem                 # noqa: F401
+from models.client import Client                            # noqa: F401
+from models.client_address import ClientAddress             # noqa: F401
+from models.tax_location import TaxLocation                 # noqa: F401
+from models.material import Material                        # noqa: F401
+from models.timesheet import Timesheet                      # noqa: F401
+from models.estimate import Estimate                        # noqa: F401
+from models.estimate_item import EstimateItem               # noqa: F401
+from models.notification import Notification                # noqa: F401
+from models.notification_read import NotificationRead       # noqa: F401
 # -------------------------------------------------------------------------
 
 # this is the Alembic Config object, which provides

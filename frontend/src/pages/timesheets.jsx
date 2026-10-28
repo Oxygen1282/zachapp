@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { apiFetch } from "../auth/apiFetch";
-import { useLoaderData } from "react-router-dom";
 
 const cell = {
     border: "1px solid black",
@@ -190,7 +189,7 @@ function Timesheets() {
                         <tr key={s.id}>
                             <td style={cell}>{s.date}</td>
                             <td style={cell}>{formatTime(s.clock_in)}</td>
-                            <td style={cell}>{s.clock_out ? formatTime(s.clockout) : "— (open)"}</td>
+                            <td style={cell}>{s.clock_out ? formatTime(s.clock_out) : "— (open)"}</td>
                             <td style={cell}>{formatMinutes(s.break_time)}</td>
                             <td style={cell}>{formatMinutes(s.payable_time)}</td>
                         </tr>

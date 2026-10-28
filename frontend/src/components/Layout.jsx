@@ -1,17 +1,25 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useNavigate } from "react-router-dom";
+
 import { useAuth } from "../auth/AuthContext";
 import { canManageContent, isOwner } from "../auth/permissions";
 
 
 function Layout() {
     const { permissions, name, logout } = useAuth();
+    const navigate = useNavigate();
 
     // Pages everyone sees.
     const navItems = [
         { to: "/", label: "Calendar", end: true },
         { to: "/clients", label: "Clients" },
         { to: "/jobs", label: "Jobs" },
+        { to: "/notifications", label: "Notifications" }
     ];
+
+    function handleLogout() {
+        logout();
+        navigate("/", { replace: true });
+    }
 
     // Owner-only Pages
     if (isOwner(permissions)) {
@@ -91,7 +99,7 @@ function Layout() {
                 ))}
 
                 {/* Logout pinned at the bottom */}
-                <button onClick={logout} style={{ margin: "auto 20px 0", padding: "10px" }}>
+                <button onClick={handleLogout} style={{ margin: "auto 20px 0", padding: "10px" }}>
                     Log Out
                 </button>
             </nav>

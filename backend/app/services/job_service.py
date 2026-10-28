@@ -46,11 +46,11 @@ async def _resolve_frozen_address(db: AsyncSession, client_id: int, client_addre
     
     return _compose_address(addr)
 
-async def create_job(db: AsyncSession, job_data: JobCreate) -> Job:
+async def create_job(db: AsyncSession, data: JobCreate) -> Job:
     
     # The client must exist.
     client = await db.execute(
-        select(Client).where(Client.id == job_data.client_id)
+        select(Client).where(Client.id == data.client_id)
         )
     if client.scalar_one_or_none() is None:
         raise HTTPException(
@@ -59,17 +59,17 @@ async def create_job(db: AsyncSession, job_data: JobCreate) -> Job:
         )
     
     # Freeze the chosen address into a string
-    frozen_address = await _resolve_frozen_address(db, job_data.client_id, job_data.client_address_id)
+    frozen_address = await _resolve_frozen_address(db, data.client_id, data.client_address_id)
 
     # Build the job explicitly (not **model_dump()) — the incoming schema has
     # client_address_id, which is NOT a Job column; it's an input we resolved
     # above. So we set fields by hand rather than spreading the payload.
     job = Job(
-        client_id=job_data.client_id,
+        client_id=data.client_id,
         address=frozen_address,
-        description=job_data.description,
-        job_type=job_data.job_type,
-        status=job_data.status if job_data.status else "New",
+        description=data.description,
+        job_type=data.job_type,
+        status=data.status if data.status else "New",
         last_modified=datetime.now(timezone.utc)
     )
 
@@ -99,18 +99,28 @@ async def get_job_by_id(db: AsyncSession, job_id: int):
     
     return job
 
-async def update_job_service(db: AsyncSession, job_id: int, job_data: JobUpdate):
+async def update_job_service(db: AsyncSession, job_id: int, data: JobUpdate):
 
     job = await get_job_by_id(db, job_id)
 
-    job.description = job_data.description
-    job.job_type = job_data.job_type
-    job.status = job_data.status if job_data.status else "New"
+    job.description = data.description
+    job.status = data.status if data.status else "New"
+
+    # Two-way job_type sync: if this job's job_type changed, update any linked
+    # estimate(s) to match. A job can have multiple estimates over its life, so
+    # update all of them.
+    if data.job_type is not None and data.job_type != job.job_type:
+        job.job_type = data.job_type 
+        est_result = await db.execute(
+            select(Estimate).where(Estimate.job_id == job.id)
+        )
+        for est in est_result.scalars().all():
+            est.job_type = data.job_type
 
     # Only re-resolve/re-freeze the address if a new one was chosen.
     # If client_address_id is None, the job keeps its existing frozen address.
-    if job_data.client_address_id is not None:
-        job.address = await _resolve_frozen_address(db, job.client_id, job_data.client_address_id)
+    if data.client_address_id is not None:
+        job.address = await _resolve_frozen_address(db, job.client_id, data.client_address_id)
 
     job.last_modified = datetime.now(timezone.utc)
 

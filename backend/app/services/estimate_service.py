@@ -18,7 +18,14 @@ from models.item import Item
 from models.tax_location import TaxLocation
 from models.user import User
 
+from services.email_service import send_email
+from services.email_templates import build_estimate_email
 from services.pdf_service import generate_estimate_pdf
+from services.notification_service import (
+    notify_estimate_first_view,
+    notify_estimate_approved,
+    notify_estimate_change_request,
+)
 
 from schemas.estimate import EstimateCreate, DeleteEstimateRequest
 
@@ -192,6 +199,24 @@ async def create_estimate(db: AsyncSession, data: EstimateCreate) -> Estimate:
     # Resolve the frozen address from whichever flow (job or client address).
     address = await _resolve_estimate_address(db, data.client_id, data.job_id, data.client_address_id)
 
+    # Resolve job_type. Flow 2 (created from a job): inherit the JOB's job_type
+    # so the two start matched — override whatever the client sent, since the
+    # job is the source of truth at link time. Flow 1 (standalone): use the
+    # owner's selection from the payload.
+    if data.job_id is not None:
+        job_result = await db.execute(select(Job).where(Job.id == data.job_id))
+        linked_job = job_result.scalar_one_or_none()
+        # (job existence already validated in _resolve_estimate_address, but
+        #  guard defensively in case that changes.
+        if linked_job is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Job does not exist"
+            )
+        job_type = linked_job.job_type
+    else:
+        job_type = data.job_type
+
     # Generate the permanent, unguessable public token for the customer link.
     token = secrets.token_urlsafe(32)
     
@@ -202,6 +227,7 @@ async def create_estimate(db: AsyncSession, data: EstimateCreate) -> Estimate:
         job_id=data.job_id,         # may be None (Flow 1)
         address=address,            # Frozen
         estimate_title=data.estimate_title,
+        job_type=job_type,
         disclaimer=data.disclaimer,
         tax_location_id=data.tax_location_id,
         public_token=token,
@@ -299,6 +325,27 @@ async def update_estimate(db: AsyncSession, estimate_id: int, data: EstimateCrea
     estimate.disclaimer = data.disclaimer
     estimate.tax_location_id = data.tax_location_id
 
+    # Two-way job_type sync: if this estimate is linked to a job and its
+    # job_type is changing, update the job to match (they must always agree
+    # once linked). Standalone estimates just update their own value.
+    if data.job_type is not None and data.job_type != estimate.job_type:
+        estimate.job_type = data.job_type
+        if estimate.job_id is not None:
+            # Update the job...
+            job_result = await db.execute(select(Job).where(Job.id == estimate.job_id))
+            linked_job = job_result.scalar_one_or_none()
+            if linked_job is not None:
+                linked_job.job_type = data.job_type
+            # ...AND every other estimate on that same job, so all siblings match
+            siblings = await db.execute(
+                select(Estimate).where(
+                    Estimate.job_id == estimate.job_id,
+                    Estimate.id != estimate.id,
+                )
+            )
+            for sib in siblings.scalars().all():
+                sib.job_type = data.job_type
+
     for line in data.items:
         await _ensure_catalog_item(db, line.name, line.description)
         estimate.items.append(
@@ -382,6 +429,18 @@ async def send_estimate(db: AsyncSession, estimate_id: int) -> Estimate:
     client_name = client.name 
     address = estimate.address  # already frozen on the estimate
 
+    # ----- Up-front missing-email guard -----
+    # A client with NO email on file can never receive the estimate. We know
+    # this BEFORE changing any state, so we refuse the whole send here — no
+    # number assigned, no PDF, nothing half-done. This is distinct from a
+    # DELIVERY failure (handled after commit): "no address at all" is a reason
+    # to not send; "the address bounced" is reported after the fact.
+    if not client.email:
+        raise HTTPException(
+            status_code=400,
+            detail="This client has no email address. Add one before sending"
+        )
+
     # ----- Freeze the tax (snapshot name + rate) -----
     if estimate.tax_location_id is not None:
         result = await db.execute(
@@ -403,14 +462,83 @@ async def send_estimate(db: AsyncSession, estimate_id: int) -> Estimate:
     estimate.date_sent = datetime.now(timezone.utc)
     estimate.status = "Awaiting Response"
 
+    # Re-arm the "first opened" signal. On a re-send (after revising for a
+    # change request), clearing this makes the customer's next open count as a
+    # fresh first-view and fire a new notification.
+    estimate.first_viewed_at = None
+
     # ----- Regenerate the PDF (overwrites on re-send) -----
     pdf_path = generate_estimate_pdf(estimate, client_name, address)
     estimate.pdf_path = pdf_path 
 
     estimate.last_modified = datetime.now(timezone.utc)
 
+    # ----- Commit the send FIRST -----
+    # The estimate is now fully sent (number, PDF, status) and saved. Email is
+    # attempted AFTER this commit so a delivery problem can never unwind the
+    # send — exactly the decoupling the design calls for.
     await db.commit() 
+
+    # ----- Attempt the email (never raises; result captured) -----
+    # Build the body and send. send_email returns an EmailResult(success,error)
+    # and NEVER throws, so nothing here can undo the committed send. We stash
+    # the result on the returned object so the router/schema can surface it as
+    # email_status (Piece 4). If email is unconfigured or fails, success=False
+    # and the estimate is still fully sent.
+    fresh = await get_estimate_by_id(db, estimate.id)
+    html = build_estimate_email(client_name, fresh.job_type, fresh.estimate_number, fresh.public_token)
+    email_result = await send_email(
+        to_email=client.email,
+        subject=f"Your estimate from {fresh.job_type} (Est #{fresh.estimate_number[4:]})",
+        html_body=html,
+    )
+
+    # Attach the outcome as a plain attribute for the response layer to read.
+    # It's NOT a DB column — just a per-response signal computed at send time.
+    fresh.email_status = "sent" if email_result.success else "failed"
+
     return await get_estimate_by_id(db, estimate.id)
+
+# Resend the estimate email for an already-sent estimate. Changes no estimate
+# state — rebuilds the "View Estimate" email from the current token and fires
+# it again. Returns the estimate with email_status set.
+async def resend_estimate_email(db: AsyncSession, estimate_id: int) -> Estimate:
+
+    estimate = await get_estimate_by_id(db, estimate_id)
+
+    # A draft was never sent — nothing to resend (no number/token-facing send yet).
+    if estimate.status == "Draft":
+        raise HTTPException(
+            status_code=400,
+            detail="This estimate hasn't been sent yet",
+        )
+
+    # Resolve the client (estimates link to client_id directly).
+    client_result = await db.execute(
+        select(Client).where(Client.id == estimate.client_id)
+    )
+    client = client_result.scalar_one_or_none()
+    if client is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Estimate's client no longer exists",
+        )
+
+    if not client.email:
+        raise HTTPException(
+            status_code=400,
+            detail="This client has no email address. Add one before sending",
+        )
+
+    html = build_estimate_email(client.name, estimate.job_type, estimate.estimate_number, estimate.public_token)
+    email_result = await send_email(
+        to_email=client.email,
+        subject=f"Your estimate from {estimate.job_type} (Est #{estimate.estimate_number[4:]})",
+        html_body=html,
+    )
+
+    estimate.email_status = "sent" if email_result.success else "failed"
+    return estimate
 
 # Customer approves the estimate with their typed signature. Public/token-driven
 # (the route resolves the estimate by token, then calls this). Only an estimate
@@ -436,6 +564,8 @@ async def approve_estimate(db: AsyncSession, estimate: Estimate, signature: str)
 
     estimate.last_modified = datetime.now(timezone.utc)
 
+    await notify_estimate_approved(db, estimate)
+
     await db.commit()
     return await get_estimate_by_id(db, estimate.id)
 
@@ -460,6 +590,8 @@ async def request_changes(db: AsyncSession, estimate: Estimate, message: str) ->
     estimate.status = "Awaiting Changes"
 
     estimate.last_modified = datetime.now(timezone.utc)
+
+    await notify_estimate_change_request(db, estimate)
 
     await db.commit() 
     return await get_estimate_by_id(db, estimate.id)
@@ -501,6 +633,7 @@ async def get_estimate_by_token(db: AsyncSession, token: str) -> Estimate:
 async def mark_first_view(db: AsyncSession, estimate: Estimate) -> None:
     if estimate.first_viewed_at is None:
         estimate.first_viewed_at = datetime.now(timezone.utc)
+        await notify_estimate_first_view(db, estimate)
         await db.commit()
 
 # Link an existing (job-less) estimate to a newly-created job. Sets job_id, and

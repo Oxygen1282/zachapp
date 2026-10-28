@@ -111,7 +111,7 @@ function Jobs() {
         try {
             const [jobsRes, clientsRes] = await Promise.all([
                 apiFetch(`/jobs/`),
-                apiFetch(`/clients`),
+                apiFetch(`/clients/`),
             ]);
 
             setJobs(await jobsRes.json());
@@ -220,6 +220,7 @@ function Jobs() {
     // Open the popup with a blank job for creation
     function createJob() {
 
+        setConvertingEstimateId(null)       // ensure not in convert mode
         setSelectedJob({ id: null });
         setEditData({
             client_id: "",
@@ -236,6 +237,7 @@ function Jobs() {
     // to Job"). Loads that client's addresses so the address dropdown is ready.
     function openNewJobForClient(clientId) {
 
+        setConvertingEstimateId(null)       // ensure not in convert mode
         setSelectedJob({ id: null });       // null = creating (not editing)
         setEditData({
             client_id: clientId,    // preselect the client 
@@ -272,7 +274,7 @@ function Jobs() {
             client_id: estimate.client_id,
             client_address_id: matchedAddressId,    // preselected if matched, else ""
             description: "",
-            job_type: "Rad Power Washing",
+            job_type: estimate.job_type,            // inherit from the estimate - they must match
             status: "Estimate Drafted",             // born from an estimate
         });
 
@@ -449,7 +451,7 @@ function Jobs() {
                                     if (jobEstimates.length === 1) {
                                         return (
                                             <button onClick={() => navigate(`/estimates?openEstimate=${jobEstimates[0].id}`)}>
-                                                View Estimate
+                                                View {jobEstimates[0].estimate_number ? `Est #${jobEstimates[0].estimate_number.slice(4)}` : "Draft"}
                                             </button>
                                         );
                                     }
@@ -589,7 +591,7 @@ function Jobs() {
                         <select 
                             value={editData.job_type}
                             onChange={(e) => setEditData({ ...editData, job_type: e.target.value })}
-                            disabled={!canEdit}
+                            disabled={!canEdit || convertingEstimateId !== null}
                         >
                             {JOB_TYPES.map((type) => (
                                 <option key={type} value={type}>

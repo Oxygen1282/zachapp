@@ -44,6 +44,9 @@ class InvoiceRead(BaseModel):
 
     date_issued: datetime | None = None
     date_paid: datetime | None = None
+    first_viewed_at: datetime | None = None
+
+    public_token: str
 
     pdf_path: str | None = None 
 
@@ -51,6 +54,12 @@ class InvoiceRead(BaseModel):
     tax_location_id: int | None = None 
     tax_name: str | None = None 
     tax_percentage: float | None = None 
+
+    # Per-response signal, set ONLY during a send/resend operation — "sent" or
+    # "failed". Not a DB column; it reflects whether the email went out on THIS
+    # response. None on any other response (list, get, update), which is why it
+    # must be Optional with a default.
+    email_status: str | None = None 
 
     # The tree computed money values
     subtotal: float 

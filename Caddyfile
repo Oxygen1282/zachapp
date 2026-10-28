@@ -1,3 +1,16 @@
-http://localhost {
-    reverse_proxy backend:8000
+:80 {
+    # API calls: strip the /api prefix, then proxy to the backend.
+    # Browser hits /api/clients  ->  backend sees /clients (its real route).
+    handle_path /api/* {
+        reverse_proxy backend:8000
+    }
+
+    # Everything else: serve the built frontend. try_files makes client-side
+    # routing work — unknown paths fall back to index.html so React Router
+    # handles them (e.g. /estimate/{token}, /jobs) instead of Caddy 404ing.
+    handle {
+        root * /srv 
+        try_files {path} /index.html 
+        file_server
+    }
 }

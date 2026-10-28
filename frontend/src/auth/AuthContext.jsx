@@ -1,6 +1,6 @@
 import { createContext, useContext, useState } from "react";
 
-const API_URL = "http://localhost:8000";
+const API_URL = import.meta.env.VITE_API_URL;
 
 // The shape of what the context provides to the whole app.
 const AuthContext = createContext(null);

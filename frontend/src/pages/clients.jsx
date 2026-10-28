@@ -275,7 +275,7 @@ function Clients() {
     }
 
     async function createClientInDatabase(clientData) {
-        const response = await apiFetch(`/clients`, {
+        const response = await apiFetch(`/clients/`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(clientData),

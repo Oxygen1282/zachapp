@@ -11,7 +11,6 @@ import CatalogManager from "../components/CatalogManager";
 import LineItemEditor from "../components/LineItemEditor";
 import PasswordInput from "../components/PasswordInput";
 
-const API_URL = "http://localhost:8000";
 
 const cellStyle = {
     border: "1px solid black",
@@ -74,6 +73,7 @@ function Estimates() {
         job_id: "",
         client_address_id: "",
         estimate_title: "",
+        job_type: "Rad Power Washing",
         disclaimer: "",
         tax_location_id: "",
         items: [],
@@ -241,6 +241,7 @@ function Estimates() {
             job_id: "",
             client_address_id: "",
             estimate_title: "",
+            job_type: "Rad Power Washing",
             disclaimer: "",
             tax_location_id: "",
             items: [],
@@ -256,6 +257,7 @@ function Estimates() {
             job_id: estimate.job_id ? String(estimate.job_id) : "",
             client_address_id: "",      // not re-selected on edit (address already frozen)
             estimate_title: estimate.estimate_title ?? "",
+            job_type: estimate.job_type ?? "Rad Power Washing",
             disclaimer: estimate.disclaimer ?? "",
             tax_location_id: estimate.tax_location_id ? String(estimate.tax_location_id) : "",
             items: estimate.items.map((it) => ({
@@ -381,6 +383,7 @@ function Estimates() {
             job_id: String(job.id),     // Flow 2: job is set
             client_address_id: "",       // address comes from the job
             estimate_title: "",
+            job_type: job.job_type,     // inherit from the job
             disclaimer: "",
             tax_location_id: "",
             items: [],
@@ -413,6 +416,7 @@ function Estimates() {
         if (String(selectedEstimate.client_id) !== editData.client_id) return true;
         if ((selectedEstimate.job_id ? String(selectedEstimate.job_id) : "") !== editData.job_id) return true;
         if ((selectedEstimate.estimate_title ?? "") !== editData.estimate_title) return true;
+        if ((selectedEstimate.job_type ?? "") !== editData.job_type) return true;
         if ((selectedEstimate.disclaimer ?? "") !== editData.disclaimer) return true;
 
 
@@ -441,6 +445,7 @@ function Estimates() {
         const payload = {
             client_id: Number(editData.client_id),
             estimate_title: editData.estimate_title || null,
+            job_type: editData.job_type,
             disclaimer: editData.disclaimer || null,
             items: editData.items,
         };
@@ -478,6 +483,7 @@ function Estimates() {
                 job_id: saved.job_id ? String(saved.job_id) : "",
                 client_address_id: "",      // Frozen now, not re-selected
                 estimate_title: saved.estimate_title ?? "",
+                job_type: saved.job_type ?? "Rad Power Washing",
                 disclaimer: saved.disclaimer ?? "",
                 tax_location_id: saved.tax_location_id ? String(saved.tax_location_id) : "",
                 items: saved.items.map((it) => ({
@@ -742,6 +748,21 @@ function Estimates() {
                             onChange={(e) => setEditData({ ...editData, estimate_title: e.target.value })}
                             disabled={!isEditable}
                         />
+
+                        <br /><br />
+
+                        <label>Job Type</label>
+                        <select 
+                            value={editData.job_type}
+                            onChange={(e) => setEditData({ ...editData, job_type: e.target.value })}
+                            disabled={
+                                !isEditable ||
+                                (!selectedEstimate?.id && Boolean(editData.job_id))
+                            }
+                        >
+                            <option value="Rad Power Washing">Rad Power Washing</option>
+                            <option value="Rad Renovations">Rad Renovations</option>
+                        </select>
 
                         <br /><br />
 

@@ -10,6 +10,8 @@ from models.user import User
 
 from schemas.timesheet import TimesheetUpdate, TimesheetDeleteRequest
 
+from services.notification_service import notify_clock_in
+
 from core.security import verify_password
 
 # ---------------------------------------------------------------------------
@@ -58,6 +60,11 @@ async def clock_in(db: AsyncSession, user: User) -> Timesheet:
         break_time=0,           # starts at zero, accumulates as breaks end
     )
     db.add(shift)
+
+    # Notify the owner (Timesheets). Staged before commit so it shares this
+    # transaction — if the clock-in rolls back, so does its notification.
+    await notify_clock_in(db, user)
+
     await db.commit()
     await db.refresh(shift)
     return shift 

@@ -12,6 +12,10 @@ import Timesheets from "./pages/timesheets";
 import Employees from "./pages/employees";
 import Estimates from "./pages/estimates";
 import CustomerEstimate from "./pages/CustomerEstimate";
+import Notifications from "./pages/notifications";
+import PaySuccess from "./pages/PaySuccess";
+import PayCancel from "./pages/PayCancel";
+import PayAlreadyPaid from "./pages/PayAlreadyPaid";
 
 function ProtectedApp() {
   const { token } = useAuth();
@@ -39,6 +43,7 @@ function ProtectedApp() {
         <Route path="contracts" element={<Contracts />} />
         <Route path="timesheets" element={<Timesheets />} />
         <Route path="employees" element={<Employees />} />
+        <Route path="notifications" element={<Notifications />} />
       
       </Route>
       
@@ -54,6 +59,11 @@ function AppContent() {
         {/* PUBLIC — no login required, no sidebar. The token in the URL is
             the credential. Must be defined BEFORE the catch-all below. */}
         <Route path="/estimate/:token" element={<CustomerEstimate />} />
+
+        {/* Payment landing pages — customer redirected here by Stripe / backend. */}
+        <Route path="/pay/success" element={<PaySuccess />} />
+        <Route path="/pay/cancel" element={<PayCancel />} />
+        <Route path="/pay/already-paid" element={<PayAlreadyPaid />} />
 
         {/* EVERYTHING ELSE — the authenticated app (which itself checks the
             login token and shows Login if absent). */}

@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -12,6 +14,7 @@ from api import tax_locations
 from api import materials 
 from api import timesheets
 from api import estimates
+from api import notifications
 
 from models.job import Job
 from models.job_finances import JobFinances
@@ -40,17 +43,23 @@ app.include_router(jobs.router)
 app.include_router(job_finances.router)
 app.include_router(scheduled_jobs.router)
 app.include_router(items.router)
-app.include_router(invoices.router)
+app.include_router(invoices.router)             # owner routes(/invoices)
+app.include_router(invoices.public_router)      # public routes (/public/invoices)
 app.include_router(clients.router)
 app.include_router(tax_locations.router)
 app.include_router(materials.router)
 app.include_router(timesheets.router)
-app.include_router(estimates.router)    # owner routes (/estimates)
+app.include_router(estimates.router)            # owner routes (/estimates)
 app.include_router(estimates.public_router)     # public routes (/pulic/estimates)
+app.include_router(notifications.router)
+
+# Comma-separated list of allowed origins, from the environment.
+# e.g. "http://localhost:5173" locally, or "https://app.radpw.com" in prod.
+_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[o.strip() for o in _origins],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

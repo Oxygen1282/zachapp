@@ -9,8 +9,6 @@ import TaxManager from "../components/TaxManager";
 import CatalogManager from "../components/CatalogManager";
 import LineItemEditor from "../components/LineItemEditor";
 
-const API_URL = "http://localhost:8000";
-
 const cellStyle = {
     border: "1px solid black",
     padding: "8px",

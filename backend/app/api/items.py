@@ -48,7 +48,7 @@ async def list_items(
 
 # READ ONE — GET /items/{item_id}
 # The {item_id} in the path is passed in as an int (FastAPI validates that).
-@router.get("/{items_id}", response_model=ItemRead)
+@router.get("/{item_id}", response_model=ItemRead)
 async def get_one(
     item_id: int,
     db: AsyncSession = Depends(get_db),

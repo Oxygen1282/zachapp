@@ -65,6 +65,22 @@ class Invoice(Base):
     # most-recently-interacted. Updated on every save.
     last_modified = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
+    # When the customer FIRST opened the invoice link. Null until then. Set
+    # once, on the first hit to the (future) public invoice view endpoint —
+    # the "opened for the first time" signal for the notification center. Only
+    # the first view stamps it; later views leave it unchanged. Column added
+    # now to prepare the backend; the customer-facing route comes later.
+    first_viewed_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Unguessable permanent token for the public customer PAY link. Generated at
+    # creation. The invoice email's "Pay Now" button points at a stable URL
+    # carrying this token; the (public, no-login) pay endpoint looks the invoice
+    # up by token and mints a FRESH Stripe checkout session on each click — so
+    # the emailed link never expires even though Stripe sessions do. Long +
+    # random (secrets), never a guessable sequence, since it's an unauthenticated
+    # surface — same reasoning as the estimate public_token.
+    public_token = Column(String, unique=True, nullable=False, index=True)
+
     # ----- Tax -----
 
     # Live reference to the selected tax location, used WHILE DRAFT to look up

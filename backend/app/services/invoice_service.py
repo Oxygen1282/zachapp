@@ -2,6 +2,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload 
 
+import secrets
+
+import os
+
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
@@ -13,7 +17,10 @@ from models.client import Client
 from models.item import Item 
 from models.tax_location import TaxLocation
 
+from services.email_service import send_email
+from services.email_templates import build_invoice_email
 from services.pdf_service import generate_invoice_pdf
+from services.notification_service import notify_invoice_paid, notify_invoice_first_view
 
 from schemas.invoice import InvoiceCreate
 
@@ -128,7 +135,7 @@ async def _reflect_paid_status_on_job(db: AsyncSession, job_id: int) -> None:
     if all_paid:
         job_result = await db.execute(select(Job).where(Job.id == job_id))
         job = job_result.scalar_one_or_none()
-        if Job is not None:
+        if job is not None:
             job.status = "Paid"
 
 # ---------------------------------------------------------------------------
@@ -144,6 +151,9 @@ async def create_invoice(db: AsyncSession, data: InvoiceCreate) -> Invoice:
             status_code=404,
             detail="Job does not exist"
         )
+
+    # Permanent, unguessable token for the customer pay link (like estimates).
+    token = secrets.token_urlsafe(32)
     
     # Create the parent. Status defaults to "Draft"; number/date/pdf stay null
     # until it's sent. We build the invoice empty, then attach lines below.
@@ -154,7 +164,8 @@ async def create_invoice(db: AsyncSession, data: InvoiceCreate) -> Invoice:
         invoice_title=data.invoice_title,
         disclaimer=data.disclaimer,
         tax_location_id=data.tax_location_id,
-        last_modified=datetime.now(timezone.utc)
+        last_modified=datetime.now(timezone.utc),
+        public_token=token,
     )
 
     # Attach each line as a child row. Appending to invoice.items is enough —
@@ -327,6 +338,18 @@ async def send_invoice(db: AsyncSession, invoice_id: int) -> Invoice:
     client_name = job.client.name
     job_address = job.address 
 
+    # ----- Up-front missing-email guard -----
+    # The invoice recipient is the job's client. If that client has no email on
+    # file, we can't deliver — refuse BEFORE assigning a number / rendering the
+    # PDF, so nothing half-happens. (Distinct from a delivery failure, which is
+    # reported after commit.) client comes via the job: job.client.
+
+    if not job.client.email:
+        raise HTTPException(
+            status_code=400,
+            detail="This client has no email address. Add one before sending",
+        )
+
     # ---- Freeze the tax (copy live rate onto the invoice) ----
     # While a draft, tax was computed from the live location. Now we snapshot
     # the name + percentage so this sent invoice is immune to later rate edits.
@@ -358,10 +381,102 @@ async def send_invoice(db: AsyncSession, invoice_id: int) -> Invoice:
 
     invoice.last_modified = datetime.now(timezone.utc)
 
-    # ---- Commit everything as one transaction ----
+    # ---- Commit the send FIRST (email can't unwind it) ----
     await db.commit()
 
-    return await get_invoice_by_id(db, invoice.id)
+    # ----- Attempt the email with the PDF attached -----
+    # Read the just-written PDF into bytes for the attachment. The email service
+    # takes raw bytes + a filename (it doesn't know about the filesystem). Then
+    # send; send_email never raises, so a failure here leaves the invoice fully
+    # sent and just reports failed. Result stashed for email_status (Piece 4).
+    fresh = await get_invoice_by_id(db, invoice.id)
+
+    # Read the PDF bytes from disk. Guard the file read: if the PDF somehow
+    # isn't there, we still don't crash the (already committed) send — we just
+    # send without an attachment rather than failing the whole thing. In
+    # practice it's always present (we just wrote it).
+    attachment_bytes = None 
+    attachment_filename = None 
+    if fresh.pdf_path and os.path.exists(fresh.pdf_path):
+        with open(fresh.pdf_path, "rb") as f:
+            attachment_bytes = f.read()
+        attachment_filename = os.path.basename(fresh.pdf_path)
+
+    html = build_invoice_email(client_name, fresh.invoice_number, job.job_type, fresh.public_token)
+    email_result = await send_email(
+        to_email=job.client.email,
+        subject=f"Invoice from {job.job_type} (Inv #{fresh.invoice_number})",
+        html_body=html,
+        attachment_bytes=attachment_bytes,
+        attachment_filename=attachment_filename,
+    )
+
+    # Per-response signal (not a DB column). Piece 4 surfaces it in the schema.
+    fresh.email_status = "sent" if email_result.success else "failed"
+
+    return fresh
+
+# Resend the invoice email for an ALREADY-SENT invoice. Does NOT change any
+# invoice state (no re-numbering, no re-freezing) — it only rebuilds the email
+# from the current PDF + current client email and fires it again. Useful when
+# the first delivery failed, or the customer says they never got it, or the
+# email was fixed after a typo. Returns the invoice with email_status set.
+async def resend_invoice_email(db: AsyncSession, invoice_id: int) -> Invoice:
+
+    invoice = await get_invoice_by_id(invoice_id)
+
+    # Only a sent/paid/void invoice HAS been emailed — a draft never was, so
+    # there's nothing to resend. (A draft has no number/PDF anyway.)
+    if invoice.status == "Draft":
+        raise HTTPException(
+            status_code=400,
+            detail="This invoice hasn't been sent yet",
+        )
+
+    # Resolve the recipient (client via the job), same path as send.
+    job_result = await db.execute(
+        select(Job)
+        .where(Job.id == invoice.job_id)
+        .options(selectinload(Job.client))
+    )
+    job = job_result.scalar_one_or_none()
+
+    if job is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Invoice's job no longer exists",
+        )
+
+    # Missing-email guard, same as send: can't resend with nowhere to send to.
+    if not job.client.email:
+        raise HTTPException(
+            status_code=400,
+            detail="This client has no email address. Add one before sending",
+        )
+
+    client_name = job.client.name 
+
+    # Read the current PDF for the attachment (guarded — degrade to no
+    # attachment rather than fail if the file is somehow missing).
+    attachment_bytes = None 
+    attachment_filename = None 
+    if invoice.pdf_path and os.path.exists(invoice.pdf_path):
+        with open(invoice.pdf_path, "rb") as f:
+            attachment_bytes = f.read()
+        attachment_filename = os.path.basename(invoice.pdf_path)
+
+    html = build_invoice_email(client_name, invoice.invoice_number, job.job_type, invoice.public_token)
+    email_result = await send_email(
+        to_email=job.client.email,
+        subject=f"Invoice from {job.job_type} (Inv #{invoice.invoice_number})",
+        html_body=html,
+        attachment_bytes=attachment_bytes,
+        attachment_filename=attachment_filename,
+    )
+
+    # No DB change — just report the outcome of this resend attempt.
+    invoice.email_status = "sent" if email_result.success else "failed"
+    return invoice
 
 # Mark a SENT invoice as Paid: flip its status, regenerate the PDF so the
 # PAID watermark appears, and reflect onto the job (the job becomes "Paid"
@@ -409,9 +524,36 @@ async def mark_invoice_paid(db: AsyncSession, invoice_id: int) -> Invoice:
     # ---- Reflect onto the job: is EVERY invoice for this job now Paid? ----
     await _reflect_paid_status_on_job(db, invoice.job_id)
 
+    await notify_invoice_paid(db, invoice, client_name)
+
     await db.commit()
 
     return await get_invoice_by_id(db, invoice.id)
+
+# Called by the webhook AFTER signature verification, when a checkout session
+# completed. Finds the invoice from the id we stashed in the session metadata
+# (Piece 2) and marks it paid — IDEMPOTENTLY, since Stripe may deliver the same
+# event more than once.
+async def handle_successful_payment(db: AsyncSession, invoice_id: int) -> None:
+
+    invoice = await get_invoice_by_id(db, invoice_id)
+
+    # IDEMPOTENCY: if it's already Paid, this is a duplicate/retry event — do
+    # nothing and treat it as success. (Without this, the second delivery would
+    # hit mark_invoice_paid's "only Sent" guard and error.)
+    if invoice.status == "Paid":
+        return 
+
+    # If it's not Sent (e.g. Draft or Void), something is off — a payment for a
+    # non-sent invoice shouldn't happen. Don't crash the webhook (Stripe would
+    # retry forever); just log-and-ignore by returning. In dev you'd inspect why.
+    if invoice.status != "Sent":
+        return 
+
+    # Reuse the existing, correct paid logic (flips status, regenerates the PAID
+    # PDF, reflects onto the job, fires the notification). The payment settlement
+    # timestamp is "now" (when Stripe confirmed).
+    await mark_invoice_paid(db, invoice_id)
 
 # Void a SENT invoice: flip status to "Void", regenerate the PDF with the red
 # VOID watermark, and lock it. Unlike paid, voiding does NOT reflect onto the
@@ -452,3 +594,33 @@ async def void_invoice(db: AsyncSession, invoice_id: int) -> Invoice:
 
     await db.commit()
     return await get_invoice_by_id(db, invoice_id)
+
+# Stamp first-view on an invoice and fire the notification — ONCE. Prepared for
+# the future public/customer invoice route; nothing calls it yet. Mirrors the
+# estimate's mark_first_view: only the first open stamps and notifies.
+async def mark_invoice_first_view(db: AsyncSession, invoice_id: int) -> Invoice:
+    invoice = await get_invoice_by_id(db, invoice_id)
+
+    if invoice.first_viewed_at is None:
+        # Recipient name for the message (client via the job), same as send/paid.
+        job_result = await db.execute(
+            select(Job)
+            .where(Job.id == invoice.job_id)
+            .options(selectinload(Job.client))
+        )
+        job = job_result.scalar_one_or_none()
+
+        if job is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Invoice's job no longer exists"
+            )
+
+        client_name = job.client.name
+
+        invoice.first_viewed_at = datetime.now(timezone.utc)
+        await notify_invoice_first_view(db, invoice, client_name)
+        await db.commit()
+
+    return await get_invoice_by_id(db, invoice.id)
+        

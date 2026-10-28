@@ -1,4 +1,4 @@
-const API_URL = "http://localhost:8000";
+const API_URL = import.meta.env.VITE_API_URL;
 
 // Drop-in replacement for fetch() that automatically attaches the auth token.
 // Usage is the same as fetch, but you can pass a path ("/clients/") or a full URL.

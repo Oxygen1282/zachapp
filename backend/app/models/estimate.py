@@ -54,6 +54,11 @@ class Estimate(Base):
     # estimate)"). Nullable — optional, editable while Draft.
     estimate_title = Column(String, nullable=True)
 
+    # Which business line this estimate is for (e.g. "Rad Power Washing").
+    # Required at creation; used as the sender/brand name on the estimate email,
+    # replacing the old hardcoded string. Independent of any linked job's type.
+    job_type = Column(String, nullable=False)
+
     # Optional disclaimer / message block on the PDF. Blank by default; only
     # rendered on the PDF if non-empty. Text (not String) since it's a
     # paragraph. Editable while Draft.
